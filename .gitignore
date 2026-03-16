@@ -21,6 +21,7 @@ classes/
 .settings/
 .vscode/
 bin/
+obj/
 .classpath
 .project
 

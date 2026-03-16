@@ -5,6 +5,12 @@ import com.google.gson.JsonParser
 import net.minecraft.client.Minecraft
 import net.minecraft.resources.ResourceLocation
 import org.slf4j.LoggerFactory
+import java.io.ByteArrayOutputStream
+import java.io.InputStream
+import java.nio.charset.StandardCharsets
+import java.nio.file.Files
+import java.nio.file.Path
+import java.nio.file.StandardCopyOption
 import java.util.Locale
 import java.util.concurrent.Executors
 import java.util.concurrent.TimeUnit
@@ -55,6 +61,7 @@ internal data class SessionSnapshot(
     val status: String,
     val positionSeconds: Float,
     val durationSeconds: Float,
+    val artworkPath: String?,
 )
 
 internal interface MediaSessionGateway {
@@ -62,123 +69,186 @@ internal interface MediaSessionGateway {
     fun control(sourceQuery: String, action: PlaybackAction): Boolean
 }
 
-internal class WindowsMediaSessionGateway : MediaSessionGateway {
+internal class WindowsNativeBridgeGateway : MediaSessionGateway {
+
+    private data class ProcessExecutionResult(
+        val launched: Boolean,
+        val timedOut: Boolean,
+        val exitCode: Int?,
+        val stdout: String,
+        val stderr: String,
+        val durationMs: Long,
+        val launchError: Throwable? = null,
+    ) {
+        val success: Boolean
+            get() = launched && !timedOut && exitCode == 0
+    }
+
     private val logger = LoggerFactory.getLogger("visualclient-watermark-media-gateway")
     private val debugMediaSessions = System.getProperty("visualclient.media.debug", "true").toBoolean()
+    private val cachedHelperPath = AtomicReference<Path?>()
 
     override fun querySessions(): List<SessionSnapshot> {
-        if (!isWindows()) {
-            if (debugMediaSessions) logger.info("media-gateway: non-windows OS, sessions unavailable")
+        if (!isWindows()) return emptyList()
+
+        val helperPath = ensureHelperBinary() ?: return emptyList()
+        val command = listOf(helperPath.toAbsolutePath().toString(), "query")
+        val execution = executeProcess(command, timeoutMs = 6_500L)
+
+        if (!execution.success) {
+            logExecutionFailure("query", command, execution)
             return emptyList()
         }
 
-        val script = """
-            ${'$'}ErrorActionPreference='SilentlyContinue'
-            Add-Type -AssemblyName System.Runtime.WindowsRuntime
-            ${'$'}manager = [Windows.Media.Control.GlobalSystemMediaTransportControlsSessionManager, Windows.Media.Control, ContentType=WindowsRuntime]::RequestAsync().AsTask().GetAwaiter().GetResult()
-            ${'$'}result = @()
-            foreach (${ '$' }session in ${ '$' }manager.GetSessions()) {
-              ${ '$' }source = [string]${ '$' }session.SourceAppUserModelId
-              ${ '$' }media = ${ '$' }session.TryGetMediaPropertiesAsync().AsTask().GetAwaiter().GetResult()
-              ${ '$' }timeline = ${ '$' }session.GetTimelineProperties()
-              ${ '$' }playback = ${ '$' }session.GetPlaybackInfo()
-              ${ '$' }status = [string]${ '$' }playback.PlaybackStatus
-              ${ '$' }position = [float]${ '$' }timeline.Position.TotalSeconds
-              ${ '$' }duration = [float]${ '$' }timeline.EndTime.TotalSeconds
-              ${ '$' }result += [PSCustomObject]@{
-                source = ${ '$' }source
-                title = [string]${ '$' }media.Title
-                artist = [string]${ '$' }media.Artist
-                album = [string]${ '$' }media.AlbumTitle
-                subtitle = [string]${ '$' }media.Subtitle
-                status = ${ '$' }status
-                position = ${ '$' }position
-                duration = ${ '$' }duration
-              }
-            }
-            ${ '$' }result | ConvertTo-Json -Compress
-        """.trimIndent()
-
-        val output = runPowerShell(script, timeoutMs = 7000) ?: run {
-            if (debugMediaSessions) {
-                logger.info("media-gateway: powershell returned null/failed output")
-            }
+        if (execution.stdout.isBlank()) {
+            logger.warn(
+                "media-gateway: query produced empty stdout (exit={}, stderr='{}')",
+                execution.exitCode,
+                shorten(execution.stderr, 600),
+            )
             return emptyList()
         }
 
         if (debugMediaSessions) {
             logger.info(
-                "media-gateway: raw-output-length={} raw='{}'",
-                output.length,
-                shorten(output, 700),
+                "media-gateway: query success exit={} stdout-length={} stderr-length={} raw='{}'",
+                execution.exitCode,
+                execution.stdout.length,
+                execution.stderr.length,
+                shorten(execution.stdout, 700),
             )
         }
 
-        return parseSessionSnapshots(output)
+        return parseSessionSnapshots(execution.stdout)
     }
 
     override fun control(sourceQuery: String, action: PlaybackAction): Boolean {
         if (!isWindows() || sourceQuery.isBlank()) return false
 
-        val query = sourceQuery.lowercase(Locale.ROOT)
-        val script = """
-            ${'$'}ErrorActionPreference='SilentlyContinue'
-            Add-Type -AssemblyName System.Runtime.WindowsRuntime
-            ${'$'}query='${query.replace("'", "''")}'
-            ${'$'}action='${action.id}'
-            ${'$'}manager = [Windows.Media.Control.GlobalSystemMediaTransportControlsSessionManager, Windows.Media.Control, ContentType=WindowsRuntime]::RequestAsync().AsTask().GetAwaiter().GetResult()
-            ${'$'}session = ${ '$' }manager.GetSessions() | Where-Object {
-              ${'$'}_.SourceAppUserModelId -and ${'$'}_.SourceAppUserModelId.ToLower().Contains(${ '$' }query)
-            } | Select-Object -First 1
-            if (${ '$' }null -eq ${ '$' }session) { exit 1 }
-            switch (${ '$' }action) {
-              'previous' { ${ '$' }session.TrySkipPreviousAsync().AsTask().GetAwaiter().GetResult() | Out-Null }
-              'toggle'   { ${ '$' }session.TryTogglePlayPauseAsync().AsTask().GetAwaiter().GetResult() | Out-Null }
-              'next'     { ${ '$' }session.TrySkipNextAsync().AsTask().GetAwaiter().GetResult() | Out-Null }
-            }
-            exit 0
-        """.trimIndent()
+        val helperPath = ensureHelperBinary() ?: return false
+        val command = listOf(
+            helperPath.toAbsolutePath().toString(),
+            "control",
+            "--source",
+            sourceQuery,
+            "--action",
+            action.id,
+        )
 
-        return runPowerShell(script, expectOutput = false, timeoutMs = 4500) != null
+        val execution = executeProcess(command, timeoutMs = 4_500L)
+        if (!execution.success) {
+            logExecutionFailure("control:${action.id}", command, execution)
+            return false
+        }
+
+        if (debugMediaSessions && execution.stdout.isNotBlank()) {
+            logger.info("media-gateway: control stdout='{}'", shorten(execution.stdout, 400))
+        }
+
+        return true
     }
 
-    private fun runPowerShell(script: String, expectOutput: Boolean = true, timeoutMs: Long): String? {
+    private fun ensureHelperBinary(): Path? {
+        cachedHelperPath.get()?.let { path ->
+            if (Files.exists(path)) return path
+        }
+
+        return synchronized(this) {
+            cachedHelperPath.get()?.let { path ->
+                if (Files.exists(path)) return@synchronized path
+            }
+
+            val resourceStream = javaClass.classLoader.getResourceAsStream(HELPER_RESOURCE_PATH)
+            if (resourceStream == null) {
+                logger.warn(
+                    "media-gateway: helper resource '{}' not found in mod resources; bridge unavailable",
+                    HELPER_RESOURCE_PATH,
+                )
+                return@synchronized null
+            }
+
+            val baseDir = resolveNativeBridgeDir()
+            val targetPath = baseDir.resolve(HELPER_FILE_NAME)
+
+            try {
+                Files.createDirectories(baseDir)
+                resourceStream.use { input ->
+                    Files.copy(input, targetPath, StandardCopyOption.REPLACE_EXISTING)
+                }
+                cachedHelperPath.set(targetPath)
+                logger.info("media-gateway: extracted helper to '{}'", targetPath)
+                targetPath
+            } catch (throwable: Throwable) {
+                logger.warn("media-gateway: failed to extract helper binary", throwable)
+                null
+            }
+        }
+    }
+
+    private fun executeProcess(command: List<String>, timeoutMs: Long): ProcessExecutionResult {
+        val startedAt = System.currentTimeMillis()
+
         return try {
-            val process = ProcessBuilder(
-                "powershell",
-                "-NoProfile",
-                "-ExecutionPolicy",
-                "Bypass",
-                "-Command",
-                script,
-            )
-                .redirectErrorStream(true)
-                .start()
+            val process = ProcessBuilder(command).start()
+
+            val stdoutBuffer = ByteArrayOutputStream()
+            val stderrBuffer = ByteArrayOutputStream()
+
+            val stdoutReader = spawnStreamPump(process.inputStream, stdoutBuffer)
+            val stderrReader = spawnStreamPump(process.errorStream, stderrBuffer)
 
             if (!process.waitFor(timeoutMs, TimeUnit.MILLISECONDS)) {
-                if (debugMediaSessions) {
-                    logger.info("media-gateway: powershell timeout after {} ms", timeoutMs)
-                }
                 process.destroyForcibly()
-                return null
+                stdoutReader.join(300)
+                stderrReader.join(300)
+
+                return ProcessExecutionResult(
+                    launched = true,
+                    timedOut = true,
+                    exitCode = null,
+                    stdout = stdoutBuffer.toString(StandardCharsets.UTF_8).trim(),
+                    stderr = stderrBuffer.toString(StandardCharsets.UTF_8).trim(),
+                    durationMs = System.currentTimeMillis() - startedAt,
+                )
             }
 
-            if (process.exitValue() != 0) {
-                if (debugMediaSessions) {
-                    val errOut = process.inputStream.bufferedReader().use { it.readText().trim() }
-                    logger.info(
-                        "media-gateway: powershell exit={} output='{}'",
-                        process.exitValue(),
-                        shorten(errOut, 500),
-                    )
+            stdoutReader.join(300)
+            stderrReader.join(300)
+
+            ProcessExecutionResult(
+                launched = true,
+                timedOut = false,
+                exitCode = process.exitValue(),
+                stdout = stdoutBuffer.toString(StandardCharsets.UTF_8).trim(),
+                stderr = stderrBuffer.toString(StandardCharsets.UTF_8).trim(),
+                durationMs = System.currentTimeMillis() - startedAt,
+            )
+        } catch (throwable: Throwable) {
+            ProcessExecutionResult(
+                launched = false,
+                timedOut = false,
+                exitCode = null,
+                stdout = "",
+                stderr = "",
+                durationMs = System.currentTimeMillis() - startedAt,
+                launchError = throwable,
+            )
+        }
+    }
+
+    private fun spawnStreamPump(stream: InputStream, out: ByteArrayOutputStream): Thread {
+        return Thread {
+            stream.use { input ->
+                val buffer = ByteArray(4096)
+                while (true) {
+                    val read = input.read(buffer)
+                    if (read <= 0) break
+                    out.write(buffer, 0, read)
                 }
-                return null
             }
-            if (!expectOutput) return ""
-
-            process.inputStream.bufferedReader().use { it.readText().trim() }.ifBlank { null }
-        } catch (_: Throwable) {
-            null
+        }.apply {
+            isDaemon = true
+            start()
         }
     }
 
@@ -187,10 +257,19 @@ internal class WindowsMediaSessionGateway : MediaSessionGateway {
             val root = JsonParser.parseString(json)
             when {
                 root.isJsonArray -> root.asJsonArray.mapNotNull(::toSessionSnapshot)
+                root.isJsonObject && root.asJsonObject.has("sessions") -> {
+                    root.asJsonObject.getAsJsonArray("sessions").mapNotNull(::toSessionSnapshot)
+                }
                 root.isJsonObject -> listOfNotNull(toSessionSnapshot(root))
                 else -> emptyList()
             }
-        } catch (_: Throwable) {
+        } catch (throwable: Throwable) {
+            logger.warn(
+                "media-gateway: json-parse-failed length={} raw='{}'",
+                json.length,
+                shorten(json, 700),
+                throwable,
+            )
             emptyList()
         }
     }
@@ -199,19 +278,60 @@ internal class WindowsMediaSessionGateway : MediaSessionGateway {
         if (!element.isJsonObject) return null
         val obj = element.asJsonObject
 
-        val source = obj.get("source")?.asString?.trim().orEmpty()
-        val title = obj.get("title")?.asString?.trim().orEmpty()
-
         return SessionSnapshot(
-            source = source,
-            title = title,
+            source = obj.get("source")?.asString?.trim().orEmpty(),
+            title = obj.get("title")?.asString?.trim().orEmpty(),
             artist = obj.get("artist")?.asString?.trim().orEmpty(),
             album = obj.get("album")?.asString?.trim().orEmpty(),
             subtitle = obj.get("subtitle")?.asString?.trim().orEmpty(),
             status = obj.get("status")?.asString?.trim().orEmpty(),
             positionSeconds = (obj.get("position")?.asFloat ?: 0f).coerceAtLeast(0f),
             durationSeconds = (obj.get("duration")?.asFloat ?: 0f).coerceAtLeast(0f),
+            artworkPath = obj.get("artworkPath")?.asString?.trim().orEmpty().ifBlank { null },
         )
+    }
+
+    private fun resolveNativeBridgeDir(): Path {
+        val localAppData = System.getenv("LOCALAPPDATA")
+        return if (!localAppData.isNullOrBlank()) {
+            Path.of(localAppData, "VisualClient", "native")
+        } else {
+            Path.of(System.getProperty("java.io.tmpdir"), "visualclient", "native")
+        }
+    }
+
+    private fun logExecutionFailure(
+        operation: String,
+        command: List<String>,
+        execution: ProcessExecutionResult,
+    ) {
+        logger.warn(
+            "media-gateway: {} failed launched={} timeout={} exit={} durationMs={} stdoutLen={} stderrLen={} command={}",
+            operation,
+            execution.launched,
+            execution.timedOut,
+            execution.exitCode,
+            execution.durationMs,
+            execution.stdout.length,
+            execution.stderr.length,
+            formatCommand(command),
+        )
+
+        if (execution.stdout.isNotBlank()) {
+            logger.warn("media-gateway: {} stdout='{}'", operation, shorten(execution.stdout, 700))
+        }
+        if (execution.stderr.isNotBlank()) {
+            logger.warn("media-gateway: {} stderr='{}'", operation, shorten(execution.stderr, 700))
+        }
+        if (execution.launchError != null) {
+            logger.warn("media-gateway: {} launch-exception", operation, execution.launchError)
+        }
+    }
+
+    private fun formatCommand(command: List<String>): String {
+        return command.joinToString(" ") { arg ->
+            if (arg.contains(' ')) "\"$arg\"" else arg
+        }
     }
 
     private fun isWindows(): Boolean {
@@ -222,10 +342,15 @@ internal class WindowsMediaSessionGateway : MediaSessionGateway {
         if (value.length <= max) return value
         return value.substring(0, max.coerceAtLeast(4) - 3) + "..."
     }
+
+    companion object {
+        private const val HELPER_RESOURCE_PATH = "native/win-x64/visual-media-bridge.exe"
+        private const val HELPER_FILE_NAME = "visual-media-bridge.exe"
+    }
 }
 
 internal class SpotifySoundCloudMusicProvider(
-    private val gateway: MediaSessionGateway = WindowsMediaSessionGateway(),
+    private val gateway: MediaSessionGateway = WindowsNativeBridgeGateway(),
 ) : WatermarkMusicProvider, WatermarkPlaybackController {
 
     private data class MatchEvaluation(
@@ -235,8 +360,6 @@ internal class SpotifySoundCloudMusicProvider(
     )
 
     private val logger = LoggerFactory.getLogger("visualclient-watermark-media")
-
-    // Diagnostic fallback mode: intentionally permissive matching.
     private val debugMediaSessions = System.getProperty("visualclient.media.debug", "true").toBoolean()
 
     private val poller = Executors.newSingleThreadScheduledExecutor { runnable ->
@@ -292,7 +415,6 @@ internal class SpotifySoundCloudMusicProvider(
     private fun refreshFromGateway() {
         val sessions = gateway.querySessions()
         val evaluations = sessions.map(::evaluateSession)
-
         val best = evaluations.firstOrNull { it.accepted }
 
         if (best == null) {
@@ -310,7 +432,7 @@ internal class SpotifySoundCloudMusicProvider(
                     artworkTexture = null,
                 )
             )
-            controlQueryRef.set(best.session.source.lowercase(Locale.ROOT).ifBlank { null })
+            controlQueryRef.set(best.session.source.ifBlank { null })
         }
 
         if (debugMediaSessions) {
