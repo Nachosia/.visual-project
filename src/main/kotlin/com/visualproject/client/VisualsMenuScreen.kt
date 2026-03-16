@@ -18,8 +18,9 @@ import io.wispforest.owo.ui.core.Sizing
 import io.wispforest.owo.ui.core.Surface
 import io.wispforest.owo.ui.core.VerticalAlignment
 import net.minecraft.client.Minecraft
+import net.minecraft.client.gui.Font
 import net.minecraft.client.input.MouseButtonEvent
-import net.minecraft.network.chat.Component
+import net.minecraft.network.chat.MutableComponent
 import kotlin.math.abs
 import kotlin.math.min
 import kotlin.math.sqrt
@@ -29,50 +30,50 @@ class VisualsMenuScreen : BaseOwoScreen<FlowLayout>() {
     private object Theme {
         const val frameGap = 8
 
-        const val panelFill = 0xC00A0D19.toInt()
-        const val panelBorder = 0x60303852
-        const val panelRadius = 20
-        const val panelPadding = 14
-        const val panelGap = 6
-        const val panelTopGlowStart = 0x2C2D3660
-        const val panelTopGlowMid = 0x18232A48
-        const val panelTopGlowEnd = 0x001A2137
-        const val panelBottomShade = 0x14111723
+        const val panelFill = 0xFF0C1019.toInt()
+        const val panelBorder = 0xFF2E374B.toInt()
+        const val panelRadius = 30
+        const val panelPadding = 16
+        const val panelGap = 8
+        const val panelTopGlowStart = 0xFF1A2135.toInt()
+        const val panelTopGlowMid = 0xFF141B2D.toInt()
+        const val panelTopGlowEnd = 0xFF101724.toInt()
+        const val panelBottomShade = 0xFF0A0D16.toInt()
 
-        const val topBarHeight = 28
+        const val topBarHeight = 36
         const val topBarGap = 8
 
-        const val searchFill = 0xA8101525.toInt()
-        const val searchBorder = 0x46343D58
-        const val searchRadius = 12
-        const val searchHeight = 26
+        const val searchFill = 0xFF111827.toInt()
+        const val searchBorder = 0xFF323D56.toInt()
+        const val searchRadius = 20
+        const val searchHeight = 32
 
-        const val moduleRowGap = 7
-        const val moduleColumnGap = 8
-        const val moduleCardHeight = 44
+        const val moduleRowGap = 10
+        const val moduleColumnGap = 10
+        const val moduleCardHeight = 46
 
-        const val cardFill = 0x960E1220.toInt()
-        const val cardBorder = 0x2D323A4F
-        const val cardHoverFill = 0xB1131A2C.toInt()
-        const val cardHoverBorder = 0x4A3C4968
-        const val cardRadius = 14
+        const val cardFill = 0xFF111827.toInt()
+        const val cardBorder = 0xFF2B3447.toInt()
+        const val cardHoverFill = 0xFF162033.toInt()
+        const val cardHoverBorder = 0xFF43527A.toInt()
+        const val cardRadius = 22
 
-        const val settingsFill = 0x9E10182A.toInt()
-        const val settingsBorder = 0x4E374460
-        const val settingsRadius = 12
+        const val settingsFill = 0xFF0F1625.toInt()
+        const val settingsBorder = 0xFF33415F.toInt()
+        const val settingsRadius = 18
         const val settingsHeight = 92
 
-        const val iconSlotFill = 0x6A12172A
-        const val iconSlotBorder = 0x40323A57
-        const val iconSlotRadius = 9
+        const val iconSlotFill = 0x7F12172A
+        const val iconSlotBorder = 0x6A323A57
+        const val iconSlotRadius = 12
 
         const val toggleWidth = 34
         const val toggleHeight = 18
 
-        const val dockFill = 0xB10B1021.toInt()
-        const val dockBorder = 0x55313858
-        const val dockRadius = 16
-        const val dockHeight = 48
+        const val dockFill = 0xFF0E1423.toInt()
+        const val dockBorder = 0xFF313D5A.toInt()
+        const val dockRadius = 24
+        const val dockHeight = 52
         const val dockGap = 8
 
         const val accent = 0xFF7D5BFF.toInt()
@@ -85,11 +86,6 @@ class VisualsMenuScreen : BaseOwoScreen<FlowLayout>() {
         const val scrollbarColor = 0x66505A7A
         const val scrollbarThickness = 3
         const val scrollStep = 12
-    }
-
-    companion object {
-        private val persistentModuleEnabled: MutableMap<String, Boolean> = mutableMapOf()
-        private val persistentModuleSettingsEnabled: MutableMap<String, Boolean> = mutableMapOf()
     }
 
     private enum class Tab(val title: String) {
@@ -120,8 +116,6 @@ class VisualsMenuScreen : BaseOwoScreen<FlowLayout>() {
     // Explicit UI state: only one settings panel may be open at a time
     private var openedModuleSettingsId: String? = null
 
-    private val moduleEnabledState = persistentModuleEnabled
-    private val moduleSettingsEnabledState = persistentModuleSettingsEnabled
     private val toggleProgressById: MutableMap<String, Float> = mutableMapOf()
 
     private lateinit var tabStrip: FlowLayout
@@ -147,9 +141,23 @@ class VisualsMenuScreen : BaseOwoScreen<FlowLayout>() {
         ModuleEntry("hit_color", "Hit Color", "K", Tab.VISUALS),
         ModuleEntry("hit_sounds", "Hit Sounds", "N", Tab.VISUALS),
         ModuleEntry("hitbox_customizer", "Hitbox Customizer", "Z", Tab.VISUALS),
-        ModuleEntry("jump_circle", "Jump Circle", "J", Tab.VISUALS),
+        ModuleEntry("jump_circle", "Jump Circles", "J", Tab.VISUALS),
+        ModuleEntry("nimb", "Nimb", "N", Tab.VISUALS),
+        ModuleEntry("no_fluid", "No Fluid", "L", Tab.VISUALS),
+        ModuleEntry("particles", "Particles", "P", Tab.VISUALS),
+        ModuleEntry("render_tweaks", "Render Tweaks", "R", Tab.VISUALS),
+        ModuleEntry("self_nametag", "Self Nametag", "S", Tab.VISUALS),
+        ModuleEntry("target_esp", "Target ESP", "E", Tab.VISUALS),
+        ModuleEntry("time_changer", "Time Changer", "T", Tab.VISUALS),
+        ModuleEntry("trails", "Trails", "T", Tab.VISUALS),
+        ModuleEntry("world_customizer", "World Customizer", "W", Tab.VISUALS),
+        ModuleEntry("world_particles", "World Particles", "O", Tab.VISUALS),
 
         ModuleEntry("armor_hud", "Armor HUD", "A", Tab.HUD),
+        ModuleEntry("cooldowns_hud", "Cooldowns HUD", "C", Tab.HUD),
+        ModuleEntry("effect_notify", "Effect Notify", "E", Tab.HUD),
+        ModuleEntry("hotkeys", "Hotkeys", "H", Tab.HUD),
+        ModuleEntry("potions", "Potions", "P", Tab.HUD),
         ModuleEntry("direction", "Direction", "D", Tab.HUD),
         ModuleEntry("fps", "FPS", "F", Tab.HUD),
         ModuleEntry("keystrokes", "Key Strokes", "K", Tab.HUD),
@@ -157,6 +165,7 @@ class VisualsMenuScreen : BaseOwoScreen<FlowLayout>() {
         ModuleEntry("radar", "Radar", "R", Tab.HUD),
         ModuleEntry("session_time", "Session Time", "S", Tab.HUD),
         ModuleEntry("target_hud", "Target HUD", "T", Tab.HUD),
+        ModuleEntry("watermark", "Watermark", "W", Tab.HUD),
 
         ModuleEntry("auto_sprint", "Auto Sprint", "A", Tab.UTILITIES),
         ModuleEntry("chat_cleaner", "Chat Cleaner", "C", Tab.UTILITIES),
@@ -180,11 +189,12 @@ class VisualsMenuScreen : BaseOwoScreen<FlowLayout>() {
             Theme.panelRadius,
         )
 
+        val glowInset = (Theme.panelRadius * 0.55f).toInt().coerceAtLeast(10)
         val glowHeight = (component.height() * 0.26f).toInt().coerceAtLeast(38)
         context.drawGradientRect(
-            component.x() + 2,
+            component.x() + glowInset,
             component.y() + 2,
-            (component.width() - 4).coerceAtLeast(2),
+            (component.width() - (glowInset * 2)).coerceAtLeast(2),
             glowHeight,
             Theme.panelTopGlowStart,
             Theme.panelTopGlowMid,
@@ -193,9 +203,9 @@ class VisualsMenuScreen : BaseOwoScreen<FlowLayout>() {
         )
 
         context.drawGradientRect(
-            component.x() + 2,
+            component.x() + glowInset,
             component.y() + component.height() - 48,
-            (component.width() - 4).coerceAtLeast(2),
+            (component.width() - (glowInset * 2)).coerceAtLeast(2),
             46,
             0x00000000,
             0x00000000,
@@ -230,11 +240,11 @@ class VisualsMenuScreen : BaseOwoScreen<FlowLayout>() {
 
     init {
         modules.forEach { module ->
-            moduleEnabledState.putIfAbsent(module.id, false)
+            ModuleStateStore.ensureModule(module.id, defaultEnabled = false)
             toggleProgressById.putIfAbsent(module.id, 0f)
 
-            moduleSettingsEnabledState.putIfAbsent("${module.id}:visible_hud", false)
-            moduleSettingsEnabledState.putIfAbsent("${module.id}:accent_sync", true)
+            ModuleStateStore.ensureSetting("${module.id}:visible_hud", defaultValue = false)
+            ModuleStateStore.ensureSetting("${module.id}:accent_sync", defaultValue = true)
         }
     }
 
@@ -246,7 +256,6 @@ class VisualsMenuScreen : BaseOwoScreen<FlowLayout>() {
         calculateWindowGeometry()
 
         rootComponent
-            .surface(Surface.blur(2.6f, 14f))
             .horizontalAlignment(HorizontalAlignment.CENTER)
             .verticalAlignment(VerticalAlignment.CENTER)
             .padding(Insets.of(16))
@@ -303,15 +312,15 @@ class VisualsMenuScreen : BaseOwoScreen<FlowLayout>() {
 
     private fun buildTopBar(panel: FlowLayout) {
         val topShell = Containers.verticalFlow(Sizing.fill(100), Sizing.content())
-        topShell.gap(4)
+        topShell.gap(3)
 
         val topBar = Containers.horizontalFlow(Sizing.fill(100), Sizing.fixed(Theme.topBarHeight))
         topBar.verticalAlignment(VerticalAlignment.CENTER)
         topBar.gap(Theme.topBarGap)
 
-        tabStrip = Containers.horizontalFlow(Sizing.expand(100), Sizing.fixed(22))
+        tabStrip = Containers.horizontalFlow(Sizing.expand(100), Sizing.fixed(26))
         tabStrip.verticalAlignment(VerticalAlignment.CENTER)
-        tabStrip.gap(6)
+        tabStrip.gap(8)
         topBar.child(tabStrip)
 
         topBar.child(buildSearchBar())
@@ -320,7 +329,7 @@ class VisualsMenuScreen : BaseOwoScreen<FlowLayout>() {
         topShell.child(
             Components.box(Sizing.fill(100), Sizing.fixed(1))
                 .fill(true)
-                .color(Color.ofArgb(0x1A2D3550))
+                .color(Color.ofArgb(0xFF20273A.toInt()))
         )
 
         panel.child(topShell)
@@ -329,12 +338,12 @@ class VisualsMenuScreen : BaseOwoScreen<FlowLayout>() {
     private fun buildSearchBar(): FlowLayout {
         val searchBar = Containers.horizontalFlow(Sizing.fixed(searchWidth), Sizing.fixed(Theme.searchHeight))
         searchBar.surface(searchSurface)
-        searchBar.padding(Insets.of(4, 4, 10, 10))
+        searchBar.padding(Insets.of(6, 7, 13, 13))
         searchBar.verticalAlignment(VerticalAlignment.CENTER)
-        searchBar.gap(6)
+        searchBar.gap(7)
 
         searchBar.child(
-            Components.label(Component.literal("?"))
+            Components.label(vText("?"))
                 .configure<LabelComponent> { icon ->
                     icon.color(Color.ofRgb(0x7B829F))
                     icon.shadow(false)
@@ -346,7 +355,7 @@ class VisualsMenuScreen : BaseOwoScreen<FlowLayout>() {
         searchInput.setTextShadow(false)
         searchInput.setTextColor(0xFFBBC3E0.toInt())
         searchInput.setTextColorUneditable(0xFF7E88A6.toInt())
-        searchInput.setHint(Component.literal("Поиск"))
+        searchInput.setHint(vText("Поиск"))
         searchInput.onChanged().subscribe(TextBoxComponent.OnChanged { value ->
             searchQuery = value.trim()
             rebuildModuleCards(filteredModulesForActiveTab())
@@ -354,7 +363,7 @@ class VisualsMenuScreen : BaseOwoScreen<FlowLayout>() {
         searchBar.child(searchInput)
 
         searchBar.child(
-            Components.label(Component.literal("?"))
+            Components.label(vText("?"))
                 .configure<LabelComponent> { icon ->
                     icon.color(Color.ofRgb(0x6E7591))
                     icon.shadow(false)
@@ -367,7 +376,7 @@ class VisualsMenuScreen : BaseOwoScreen<FlowLayout>() {
     private fun buildModuleSection(panel: FlowLayout) {
         moduleRows = Containers.verticalFlow(Sizing.fill(100), Sizing.content())
         moduleRows.gap(Theme.moduleRowGap)
-        moduleRows.padding(Insets.of(1))
+        moduleRows.padding(Insets.of(2))
 
         moduleScroll = Containers.verticalScroll(Sizing.fill(100), Sizing.expand(100), moduleRows)
             .scrollbar(ScrollContainer.Scrollbar.flat(Color.ofArgb(Theme.scrollbarColor)))
@@ -471,11 +480,11 @@ class VisualsMenuScreen : BaseOwoScreen<FlowLayout>() {
     private fun buildEmptyCard(): FlowLayout {
         val emptyCard = Containers.horizontalFlow(Sizing.fill(100), Sizing.fixed(Theme.moduleCardHeight))
         emptyCard.surface(cardSurface)
-        emptyCard.padding(Insets.of(10, 10, 14, 14))
+        emptyCard.padding(Insets.of(9, 10, 14, 14))
         emptyCard.verticalAlignment(VerticalAlignment.CENTER)
 
         emptyCard.child(
-            Components.label(Component.literal("Ничего не найдено"))
+            Components.label(vText("Ничего не найдено"))
                 .configure<LabelComponent> { label ->
                     label.color(Color.ofRgb(0x7D86A6))
                     label.shadow(false)
@@ -488,11 +497,11 @@ class VisualsMenuScreen : BaseOwoScreen<FlowLayout>() {
     private fun buildModuleSettingsPanel(module: ModuleEntry): FlowLayout {
         val panel = Containers.verticalFlow(Sizing.fill(100), Sizing.fixed(Theme.settingsHeight))
         panel.surface(settingsSurface)
-        panel.padding(Insets.of(8, 8, 12, 12))
-        panel.gap(8)
+        panel.padding(Insets.of(9, 9, 12, 12))
+        panel.gap(7)
 
         panel.child(
-            Components.label(Component.literal("Settings • ${module.title}"))
+            Components.label(vText("Settings • ${module.title}"))
                 .configure<LabelComponent> { label ->
                     label.color(Color.ofRgb(0xA9B3D4))
                     label.shadow(false)
@@ -513,7 +522,7 @@ class VisualsMenuScreen : BaseOwoScreen<FlowLayout>() {
         row.gap(8)
 
         row.child(
-            Components.label(Component.literal(title))
+            Components.label(vText(title))
                 .configure<LabelComponent> { label ->
                     label.color(Color.ofRgb(0x8D97B8))
                     label.shadow(false)
@@ -522,8 +531,8 @@ class VisualsMenuScreen : BaseOwoScreen<FlowLayout>() {
         )
 
         row.child(
-            InlineSwitchComponent(moduleSettingsEnabledState[stateKey] == true) { enabled ->
-                moduleSettingsEnabledState[stateKey] = enabled
+            InlineSwitchComponent(ModuleStateStore.isSettingEnabled(stateKey)) { enabled ->
+                ModuleStateStore.setSettingEnabled(stateKey, enabled)
                 VisualClientMod.LOGGER.info("$stateKey: $enabled")
             }
         )
@@ -546,18 +555,18 @@ class VisualsMenuScreen : BaseOwoScreen<FlowLayout>() {
 
         override fun draw(context: OwoUIDrawContext, mouseX: Int, mouseY: Int, partialTicks: Float, delta: Float) {
             val hovered = mouseX in this.x until (this.x + this.width) && mouseY in this.y until (this.y + this.height)
-            val enabled = moduleEnabledState[module.id] == true
+            val enabled = ModuleStateStore.isEnabled(module.id)
             val expanded = openedModuleSettingsId == module.id
 
             val border = when {
-                expanded -> 0xB1876DFF.toInt()
+                expanded -> 0xFF876DFF.toInt()
                 hovered -> Theme.cardHoverBorder
-                enabled -> 0x3F4E5B86
+                enabled -> 0xFF4E5B86.toInt()
                 else -> Theme.cardBorder
             }
             val fill = when {
                 hovered -> Theme.cardHoverFill
-                enabled -> 0xA012192B.toInt()
+                enabled -> 0xFF12192B.toInt()
                 else -> Theme.cardFill
             }
 
@@ -569,10 +578,10 @@ class VisualsMenuScreen : BaseOwoScreen<FlowLayout>() {
             drawRoundedPanel(context, slotX, slotY, slotSize, slotSize, Theme.iconSlotFill, Theme.iconSlotBorder, Theme.iconSlotRadius)
 
             val font = Minecraft.getInstance().font
-            val iconWidth = font.width(module.iconGlyph)
+            val iconWidth = font.width(vText(module.iconGlyph))
             context.drawString(
                 font,
-                Component.literal(module.iconGlyph),
+                vText(module.iconGlyph),
                 slotX + (slotSize - iconWidth) / 2,
                 slotY + (slotSize - font.lineHeight) / 2,
                 0xFF7E86A4.toInt(),
@@ -580,16 +589,19 @@ class VisualsMenuScreen : BaseOwoScreen<FlowLayout>() {
             )
 
             val textColor = if (enabled) 0xFFA2ACCA.toInt() else 0xFF8E96B4.toInt()
+            val titleX = slotX + slotSize + 8
+            val toggleX = this.x + this.width - Theme.toggleWidth - 10
+            val titleMaxWidth = (toggleX - 8 - titleX).coerceAtLeast(24)
+            val fittedTitle = fitStyledText(font, module.title, titleMaxWidth)
             context.drawString(
                 font,
-                Component.literal(module.title),
-                slotX + slotSize + 8,
+                fittedTitle,
+                titleX,
                 this.y + (this.height - font.lineHeight) / 2,
                 textColor,
                 false,
             )
 
-            val toggleX = this.x + this.width - Theme.toggleWidth - 10
             val toggleY = this.y + (this.height - Theme.toggleHeight) / 2
             val trackBorder = if (enabled) 0xFF8D72FF.toInt() else 0x7A3A425A
             val trackFill = if (enabled) 0xD4664BFF.toInt() else 0x6E1E2639
@@ -627,8 +639,7 @@ class VisualsMenuScreen : BaseOwoScreen<FlowLayout>() {
             }
 
             if (click.button() == 0) {
-                val next = !(moduleEnabledState[module.id] ?: false)
-                moduleEnabledState[module.id] = next
+                val next = ModuleStateStore.toggleEnabled(module.id)
                 VisualClientMod.LOGGER.info("${module.id}: $next")
                 this.notifyParentIfMounted()
                 return true
@@ -645,13 +656,13 @@ class VisualsMenuScreen : BaseOwoScreen<FlowLayout>() {
     ) : BaseComponent() {
 
         init {
-            this.sizing(Sizing.content(), Sizing.fixed(20))
+            this.sizing(Sizing.content(), Sizing.fixed(22))
             this.cursorStyle(CursorStyle.HAND)
         }
 
-        override fun determineHorizontalContentSize(sizing: Sizing): Int = Minecraft.getInstance().font.width(text) + 8
+        override fun determineHorizontalContentSize(sizing: Sizing): Int = Minecraft.getInstance().font.width(vText(text)) + 10
 
-        override fun determineVerticalContentSize(sizing: Sizing): Int = 20
+        override fun determineVerticalContentSize(sizing: Sizing): Int = 22
 
         override fun draw(context: OwoUIDrawContext, mouseX: Int, mouseY: Int, partialTicks: Float, delta: Float) {
             val hovered = mouseX in this.x until (this.x + this.width) && mouseY in this.y until (this.y + this.height)
@@ -662,7 +673,8 @@ class VisualsMenuScreen : BaseOwoScreen<FlowLayout>() {
             }
 
             val font = Minecraft.getInstance().font
-            context.drawString(font, Component.literal(text), this.x + 2, this.y + (this.height - font.lineHeight) / 2, color, false)
+            val textY = this.y + ((this.height - font.lineHeight) / 2)
+            context.drawString(font, vText(text), this.x + 2, textY, color, false)
 
             if (active) {
                 context.drawGradientRect(
@@ -694,13 +706,13 @@ class VisualsMenuScreen : BaseOwoScreen<FlowLayout>() {
     ) : BaseComponent() {
 
         init {
-            this.sizing(Sizing.fixed(34), Sizing.fixed(34))
+            this.sizing(Sizing.fixed(36), Sizing.fixed(36))
             this.cursorStyle(CursorStyle.HAND)
         }
 
-        override fun determineHorizontalContentSize(sizing: Sizing): Int = 34
+        override fun determineHorizontalContentSize(sizing: Sizing): Int = 36
 
-        override fun determineVerticalContentSize(sizing: Sizing): Int = 34
+        override fun determineVerticalContentSize(sizing: Sizing): Int = 36
 
         override fun draw(context: OwoUIDrawContext, mouseX: Int, mouseY: Int, partialTicks: Float, delta: Float) {
             val hovered = mouseX in this.x until (this.x + this.width) && mouseY in this.y until (this.y + this.height)
@@ -716,14 +728,14 @@ class VisualsMenuScreen : BaseOwoScreen<FlowLayout>() {
                 else -> 0x6010172A
             }
 
-            drawRoundedPanel(context, this.x, this.y, this.width, this.height, fill, border, 10)
+            drawRoundedPanel(context, this.x, this.y, this.width, this.height, fill, border, 14)
 
             val font = Minecraft.getInstance().font
             val color = if (active) 0xFFF9F6FF.toInt() else 0xFF838CAC.toInt()
-            val textWidth = font.width(iconText)
+            val textWidth = font.width(vText(iconText))
             context.drawString(
                 font,
-                Component.literal(iconText),
+                vText(iconText),
                 this.x + (this.width - textWidth) / 2,
                 this.y + (this.height - font.lineHeight) / 2,
                 color,
@@ -789,6 +801,19 @@ class VisualsMenuScreen : BaseOwoScreen<FlowLayout>() {
     }
 }
 
+private fun fitStyledText(font: Font, value: String, maxWidth: Int): MutableComponent {
+    val safeWidth = maxWidth.coerceAtLeast(12)
+    val full = vText(value)
+    if (font.width(full) <= safeWidth) return full
+
+    var trimmed = value
+    while (trimmed.isNotEmpty() && font.width(vText("$trimmed...")) > safeWidth) {
+        trimmed = trimmed.dropLast(1)
+    }
+
+    return if (trimmed.isEmpty()) vText("...") else vText("$trimmed...")
+}
+
 private fun roundedSurface(fill: Int, border: Int, radius: Int): Surface {
     return Surface { context, component ->
         drawRoundedPanel(
@@ -819,14 +844,15 @@ private fun drawRoundedPanel(
     val cornerRadius = radius.coerceIn(0, min(width, height) / 2)
     fillRoundedRect(context, x, y, width, height, cornerRadius, borderColor)
 
-    if (width > 2 && height > 2) {
+    val innerInset = if (cornerRadius >= 16 && width > 8 && height > 8) 2 else 1
+    if (width > innerInset * 2 && height > innerInset * 2) {
         fillRoundedRect(
             context,
-            x + 1,
-            y + 1,
-            width - 2,
-            height - 2,
-            (cornerRadius - 1).coerceAtLeast(0),
+            x + innerInset,
+            y + innerInset,
+            width - (innerInset * 2),
+            height - (innerInset * 2),
+            (cornerRadius - innerInset).coerceAtLeast(0),
             fillColor,
         )
     }

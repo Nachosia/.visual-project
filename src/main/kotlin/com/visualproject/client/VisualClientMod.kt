@@ -1,6 +1,7 @@
 package com.visualproject.client
 
 import com.mojang.blaze3d.platform.InputConstants
+import com.visualproject.client.hud.watermark.WatermarkHudModule
 import net.fabricmc.api.ClientModInitializer
 import net.fabricmc.fabric.api.client.event.lifecycle.v1.ClientTickEvents
 import net.fabricmc.fabric.api.client.keybinding.v1.KeyBindingHelper
@@ -33,6 +34,8 @@ object VisualClientMod : ClientModInitializer {
                 Minecraft.getInstance().setScreen(VisualsMenuScreen())
             }
         })
+
+        WatermarkHudModule.initialize()
 
         LOGGER.info("Visual Client initialized.")
     }
