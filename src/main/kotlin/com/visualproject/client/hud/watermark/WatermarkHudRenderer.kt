@@ -7,6 +7,8 @@ import net.minecraft.client.DeltaTracker
 import net.minecraft.client.Minecraft
 import net.minecraft.client.gui.Font
 import net.minecraft.client.gui.GuiGraphics
+import net.minecraft.client.gui.screens.Screen
+import net.minecraft.client.input.MouseButtonEvent
 import net.minecraft.client.renderer.RenderPipelines
 import net.minecraft.client.renderer.texture.DynamicTexture
 import net.minecraft.resources.ResourceLocation
@@ -64,6 +66,8 @@ class WatermarkHudRenderer(
     private val logger = LoggerFactory.getLogger("visualclient-watermark-hud")
 
     private var wasLeftMousePressed = false
+    private var lastRenderedControls: ControlHitboxes? = null
+    private var lastRenderedExpansion: Float = 0f
     private var smoothedTrackKey: String? = null
     private var smoothedPositionSeconds = 0f
     private var smoothedDurationSeconds = 0f
@@ -126,6 +130,8 @@ class WatermarkHudRenderer(
 
         val compactAlpha = (1f - (snapshot.expansion * 1.15f)).coerceIn(0f, 1f)
         if (state.mode == WatermarkMode.DEFAULT || renderTrack == null) {
+            lastRenderedControls = null
+            lastRenderedExpansion = 0f
             drawDefaultCompact(context, font, bounds, client, compactAlpha)
             consumeClickState(client)
             return
@@ -138,8 +144,52 @@ class WatermarkHudRenderer(
         } else {
             null
         }
+        lastRenderedControls = controls
+        lastRenderedExpansion = snapshot.expansion
 
         handleControlClicks(client, controls, mouseX, mouseY, snapshot.expansion)
+    }
+
+    fun onScreenMouseClick(
+        client: Minecraft,
+        screen: Screen,
+        mouseEvent: MouseButtonEvent,
+        consumed: Boolean,
+    ): Boolean {
+        if (mouseEvent.button() != 0) return consumed
+
+        val controls = lastRenderedControls
+        val expansion = lastRenderedExpansion
+        val mouseX = mouseEvent.x().toInt()
+        val mouseY = mouseEvent.y().toInt()
+
+        if (debugControls) {
+            logger.info(
+                "watermark-control: screen-event click screen='{}' mouse=({}, {}) consumed={} controlsPresent={} expansion={}",
+                screen.javaClass.simpleName,
+                mouseX,
+                mouseY,
+                consumed,
+                controls != null,
+                "%.3f".format(expansion),
+            )
+        }
+
+        if (controls == null || expansion <= 0.01f) {
+            return consumed
+        }
+
+        val hoveredControl = controls.resolveHovered(mouseX, mouseY) ?: return consumed
+        val handled = dispatchControlClick(
+            client = client,
+            hoveredControl = hoveredControl,
+            mouseX = mouseX,
+            mouseY = mouseY,
+            expansion = expansion,
+            inputRoute = "screen-event",
+        )
+
+        return consumed || handled
     }
 
     private fun drawMainShell(context: GuiGraphics, bounds: HudBounds, expansion: Float) {
@@ -614,6 +664,12 @@ class WatermarkHudRenderer(
         mouseY: Int,
         expansion: Float,
     ) {
+        if (client.screen != null) {
+            // Screen is responsible for mouse ownership. Use screen event routing in this case.
+            consumeClickState(client)
+            return
+        }
+
         val leftPressed = client.mouseHandler.isLeftPressed
         val isNewClick = leftPressed && !wasLeftMousePressed
         wasLeftMousePressed = leftPressed
@@ -662,13 +718,37 @@ class WatermarkHudRenderer(
             }
             return
         }
+        dispatchControlClick(
+            client = client,
+            hoveredControl = hoveredControl,
+            mouseX = mouseX,
+            mouseY = mouseY,
+            expansion = expansion,
+            inputRoute = "hud-polling",
+        )
+    }
+
+    private fun dispatchControlClick(
+        client: Minecraft,
+        hoveredControl: ControlButton,
+        mouseX: Int,
+        mouseY: Int,
+        expansion: Float,
+        inputRoute: String,
+    ): Boolean {
         val playbackController = musicProvider.playbackController(client)
         if (playbackController == null) {
-            logger.warn("watermark-control: clicked '{}' but playback controller is unavailable", hoveredControl.name)
-            return
+            logger.warn(
+                "watermark-control: route={} clicked '{}' but playback controller is unavailable",
+                inputRoute,
+                hoveredControl.name,
+            )
+            return false
         }
+
         logger.info(
-            "watermark-control: clicked '{}' mouse=({}, {}) expansion={}",
+            "watermark-control: route={} clicked '{}' mouse=({}, {}) expansion={}",
+            inputRoute,
             hoveredControl.name,
             mouseX,
             mouseY,
@@ -682,8 +762,14 @@ class WatermarkHudRenderer(
         }
 
         if (debugControls) {
-            logger.info("watermark-control: dispatch complete button='{}'", hoveredControl.name)
+            logger.info(
+                "watermark-control: route={} dispatch complete button='{}'",
+                inputRoute,
+                hoveredControl.name,
+            )
         }
+
+        return true
     }
 
     private fun consumeClickState(client: Minecraft) {

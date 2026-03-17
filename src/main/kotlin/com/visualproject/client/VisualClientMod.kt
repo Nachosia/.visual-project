@@ -1,6 +1,7 @@
 package com.visualproject.client
 
 import com.mojang.blaze3d.platform.InputConstants
+import com.visualproject.client.hud.target.TargetHudModule
 import com.visualproject.client.hud.watermark.WatermarkHudModule
 import net.fabricmc.api.ClientModInitializer
 import net.fabricmc.fabric.api.client.event.lifecycle.v1.ClientTickEvents
@@ -36,6 +37,7 @@ object VisualClientMod : ClientModInitializer {
         })
 
         WatermarkHudModule.initialize()
+        TargetHudModule.initialize()
 
         LOGGER.info("Visual Client initialized.")
     }

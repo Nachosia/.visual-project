@@ -1,11 +1,11 @@
 ﻿package com.visualproject.client
 
-import io.wispforest.owo.ui.base.BaseComponent
+import io.wispforest.owo.ui.base.BaseUIComponent as BaseComponent
 import io.wispforest.owo.ui.base.BaseOwoScreen
-import io.wispforest.owo.ui.component.Components
+import io.wispforest.owo.ui.component.UIComponents as Components
 import io.wispforest.owo.ui.component.LabelComponent
 import io.wispforest.owo.ui.component.TextBoxComponent
-import io.wispforest.owo.ui.container.Containers
+import io.wispforest.owo.ui.container.UIContainers as Containers
 import io.wispforest.owo.ui.container.FlowLayout
 import io.wispforest.owo.ui.container.ScrollContainer
 import io.wispforest.owo.ui.core.Color
@@ -13,7 +13,7 @@ import io.wispforest.owo.ui.core.CursorStyle
 import io.wispforest.owo.ui.core.HorizontalAlignment
 import io.wispforest.owo.ui.core.Insets
 import io.wispforest.owo.ui.core.OwoUIAdapter
-import io.wispforest.owo.ui.core.OwoUIDrawContext
+import io.wispforest.owo.ui.core.OwoUIGraphics
 import io.wispforest.owo.ui.core.Sizing
 import io.wispforest.owo.ui.core.Surface
 import io.wispforest.owo.ui.core.VerticalAlignment
@@ -553,7 +553,7 @@ class VisualsMenuScreen : BaseOwoScreen<FlowLayout>() {
 
         override fun determineVerticalContentSize(sizing: Sizing): Int = Theme.moduleCardHeight
 
-        override fun draw(context: OwoUIDrawContext, mouseX: Int, mouseY: Int, partialTicks: Float, delta: Float) {
+        override fun draw(context: OwoUIGraphics, mouseX: Int, mouseY: Int, partialTicks: Float, delta: Float) {
             val hovered = mouseX in this.x until (this.x + this.width) && mouseY in this.y until (this.y + this.height)
             val enabled = ModuleStateStore.isEnabled(module.id)
             val expanded = openedModuleSettingsId == module.id
@@ -664,7 +664,7 @@ class VisualsMenuScreen : BaseOwoScreen<FlowLayout>() {
 
         override fun determineVerticalContentSize(sizing: Sizing): Int = 22
 
-        override fun draw(context: OwoUIDrawContext, mouseX: Int, mouseY: Int, partialTicks: Float, delta: Float) {
+        override fun draw(context: OwoUIGraphics, mouseX: Int, mouseY: Int, partialTicks: Float, delta: Float) {
             val hovered = mouseX in this.x until (this.x + this.width) && mouseY in this.y until (this.y + this.height)
             val color = when {
                 active -> Theme.textPrimary
@@ -714,7 +714,7 @@ class VisualsMenuScreen : BaseOwoScreen<FlowLayout>() {
 
         override fun determineVerticalContentSize(sizing: Sizing): Int = 36
 
-        override fun draw(context: OwoUIDrawContext, mouseX: Int, mouseY: Int, partialTicks: Float, delta: Float) {
+        override fun draw(context: OwoUIGraphics, mouseX: Int, mouseY: Int, partialTicks: Float, delta: Float) {
             val hovered = mouseX in this.x until (this.x + this.width) && mouseY in this.y until (this.y + this.height)
 
             val border = when {
@@ -768,7 +768,7 @@ class VisualsMenuScreen : BaseOwoScreen<FlowLayout>() {
 
         override fun determineVerticalContentSize(sizing: Sizing): Int = 16
 
-        override fun draw(context: OwoUIDrawContext, mouseX: Int, mouseY: Int, partialTicks: Float, delta: Float) {
+        override fun draw(context: OwoUIGraphics, mouseX: Int, mouseY: Int, partialTicks: Float, delta: Float) {
             val trackBorder = if (enabled) 0xFF8D72FF.toInt() else 0x7A3A425A
             val trackFill = if (enabled) 0xD4664BFF.toInt() else 0x6E1E2639
             drawRoundedPanel(context, this.x, this.y, this.width, this.height, trackFill, trackBorder, this.height / 2)
@@ -830,7 +830,7 @@ private fun roundedSurface(fill: Int, border: Int, radius: Int): Surface {
 }
 
 private fun drawRoundedPanel(
-    context: OwoUIDrawContext,
+    context: OwoUIGraphics,
     x: Int,
     y: Int,
     width: Int,
@@ -859,7 +859,7 @@ private fun drawRoundedPanel(
 }
 
 private fun fillRoundedRect(
-    context: OwoUIDrawContext,
+    context: OwoUIGraphics,
     x: Int,
     y: Int,
     width: Int,

@@ -14,8 +14,10 @@ import java.nio.file.StandardOpenOption
 import java.security.MessageDigest
 import java.util.Locale
 import java.util.concurrent.Executors
+import java.util.concurrent.ScheduledFuture
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicReference
+import kotlin.math.absoluteValue
 
 enum class WatermarkPlaybackState {
     PLAYING,
@@ -457,17 +459,18 @@ internal class SpotifySoundCloudMusicProvider(
     private val poller = Executors.newSingleThreadScheduledExecutor { runnable ->
         Thread(runnable, "visualclient-media-poller").apply { isDaemon = true }
     }
+    private val pollLock = Any()
 
     private val cachedTrackRef = AtomicReference<WatermarkTrackInfo?>(null)
     private val controlQueryRef = AtomicReference<String?>(null)
+    private var mainPollFuture: ScheduledFuture<*>? = null
+
+    private var lastKnownTrackIdentity: String? = null
+    private var recentTrackChangedAtMs: Long = 0L
+    private var lastManualControlAtMs: Long = 0L
 
     init {
-        poller.scheduleWithFixedDelay(
-            { safeRefresh() },
-            0L,
-            2500L,
-            TimeUnit.MILLISECONDS,
-        )
+        scheduleMainPoll(delayMs = 0L, reason = "init", replaceExisting = true)
     }
 
     override fun currentTrack(client: Minecraft): WatermarkTrackInfo? {
@@ -526,18 +529,70 @@ internal class SpotifySoundCloudMusicProvider(
                 if (query.isBlank()) "<none>" else shorten(query, 96),
                 ok,
             )
+
+            scheduleManualControlRefreshBurst(action)
         }
     }
 
-    private fun safeRefresh() {
+    private fun scheduleMainPoll(delayMs: Long, reason: String, replaceExisting: Boolean) {
+        synchronized(pollLock) {
+            if (replaceExisting) {
+                mainPollFuture?.cancel(false)
+                mainPollFuture = null
+            } else if (mainPollFuture?.isDone == false) {
+                return
+            }
+
+            val boundedDelay = delayMs.coerceIn(0L, MAX_MAIN_POLL_DELAY_MS)
+            if (debugMediaSessions) {
+                logger.info("media-poll: schedule-main delayMs={} reason='{}' replace={}", boundedDelay, reason, replaceExisting)
+            }
+            mainPollFuture = poller.schedule(
+                { safeRefresh(reason) },
+                boundedDelay,
+                TimeUnit.MILLISECONDS,
+            )
+        }
+    }
+
+    private fun scheduleSupplementalPoll(delayMs: Long, reason: String) {
+        val boundedDelay = delayMs.coerceIn(0L, MAX_MAIN_POLL_DELAY_MS)
+        if (debugMediaSessions) {
+            logger.info("media-poll: schedule-supplemental delayMs={} reason='{}'", boundedDelay, reason)
+        }
+        poller.schedule(
+            { safeRefresh("supplemental:$reason:+${boundedDelay}ms") },
+            boundedDelay,
+            TimeUnit.MILLISECONDS,
+        )
+    }
+
+    private fun scheduleManualControlRefreshBurst(action: PlaybackAction) {
+        lastManualControlAtMs = System.currentTimeMillis()
+        val reason = "manual-control:${action.id}"
+        scheduleMainPoll(delayMs = 0L, reason = "$reason:immediate", replaceExisting = true)
+        scheduleSupplementalPoll(delayMs = 300L, reason = reason)
+        scheduleSupplementalPoll(delayMs = 900L, reason = reason)
+    }
+
+    private fun safeRefresh(reason: String) {
         try {
             refreshFromGateway()
         } catch (throwable: Throwable) {
             logger.warn("Media poll failed: {}", throwable.message)
+        } finally {
+            val now = System.currentTimeMillis()
+            val nextDelay = computeAdaptiveDelayMs(cachedTrackRef.get(), now)
+            scheduleMainPoll(
+                delayMs = nextDelay,
+                reason = "adaptive-next(after='$reason')",
+                replaceExisting = true,
+            )
         }
     }
 
     private fun refreshFromGateway() {
+        val now = System.currentTimeMillis()
         val sessions = gateway.querySessions()
         val evaluations = sessions.map(::evaluateSession)
         val best = evaluations.firstOrNull { it.accepted && it.session.isCurrent }
@@ -546,6 +601,7 @@ internal class SpotifySoundCloudMusicProvider(
         if (best == null) {
             cachedTrackRef.set(null)
             controlQueryRef.set(null)
+            lastKnownTrackIdentity = null
         } else {
             val liveArtworkPath = resolveLiveArtworkPath(best.session)
             val normalizedSource = when {
@@ -558,19 +614,33 @@ internal class SpotifySoundCloudMusicProvider(
             } else {
                 WatermarkPlaybackState.PAUSED
             }
-            cachedTrackRef.set(
-                WatermarkTrackInfo(
-                    title = best.session.title,
-                    artist = best.session.artist.ifBlank { null },
-                    source = normalizedSource,
-                    positionSeconds = best.session.positionSeconds,
-                    durationSeconds = best.session.durationSeconds,
-                    playbackState = playbackState,
-                    artworkPath = liveArtworkPath,
-                    artworkTexture = null,
-                )
+            val updatedTrack = WatermarkTrackInfo(
+                title = best.session.title,
+                artist = best.session.artist.ifBlank { null },
+                source = normalizedSource,
+                positionSeconds = best.session.positionSeconds,
+                durationSeconds = best.session.durationSeconds,
+                playbackState = playbackState,
+                artworkPath = liveArtworkPath,
+                artworkTexture = null,
             )
+            cachedTrackRef.set(updatedTrack)
             controlQueryRef.set(best.session.source.ifBlank { null })
+
+            val newIdentity = trackIdentity(updatedTrack)
+            if (newIdentity != null && newIdentity != lastKnownTrackIdentity) {
+                recentTrackChangedAtMs = now
+                if (debugMediaSessions) {
+                    logger.info(
+                        "media-poll: track-changed old='{}' new='{}' => stabilization {}ms",
+                        lastKnownTrackIdentity ?: "<none>",
+                        newIdentity,
+                        TRACK_CHANGE_STABILIZATION_MS,
+                    )
+                }
+            }
+            lastKnownTrackIdentity = newIdentity
+
             if (debugMediaSessions) {
                 logger.info(
                     "media-control: active session source='{}' current={} status='{}'",
@@ -602,6 +672,39 @@ internal class SpotifySoundCloudMusicProvider(
         if (debugMediaSessions) {
             logDebugEvaluations(evaluations, best)
         }
+    }
+
+    private fun computeAdaptiveDelayMs(track: WatermarkTrackInfo?, nowMs: Long): Long {
+        if (track == null) {
+            return NO_TRACK_POLL_MS
+        }
+
+        val recentlyControlled = nowMs - lastManualControlAtMs <= MANUAL_BURST_WINDOW_MS
+        if (recentlyControlled) {
+            return FAST_POLL_MS
+        }
+
+        val recentlyChanged = recentTrackChangedAtMs > 0L && (nowMs - recentTrackChangedAtMs) <= TRACK_CHANGE_STABILIZATION_MS
+        if (recentlyChanged) {
+            return FAST_POLL_MS
+        }
+
+        if (track.playbackState == WatermarkPlaybackState.PAUSED) {
+            return PAUSED_POLL_MS
+        }
+
+        val remaining = (track.durationSeconds - track.positionSeconds).coerceAtLeast(0f)
+        if (track.durationSeconds > 0f && remaining <= END_OF_TRACK_SECONDS) {
+            return FAST_POLL_MS
+        }
+
+        val stableHash = trackIdentity(track)?.hashCode()?.absoluteValue ?: 0
+        return STABLE_PLAYING_MIN_MS + (stableHash % (STABLE_PLAYING_MAX_MS - STABLE_PLAYING_MIN_MS + 1))
+    }
+
+    private fun trackIdentity(track: WatermarkTrackInfo?): String? {
+        if (track == null) return null
+        return "${track.source}|${track.title}|${track.artist.orEmpty()}"
     }
 
     private fun evaluateSession(session: SessionSnapshot): MatchEvaluation {
@@ -723,5 +826,14 @@ internal class SpotifySoundCloudMusicProvider(
 
     companion object {
         private val BROWSER_MARKERS = listOf("chrome", "msedge", "edge", "firefox", "opera", "brave", "vivaldi", "arc")
+        private const val STABLE_PLAYING_MIN_MS = 6_000L
+        private const val STABLE_PLAYING_MAX_MS = 8_000L
+        private const val FAST_POLL_MS = 900L
+        private const val PAUSED_POLL_MS = 3_000L
+        private const val NO_TRACK_POLL_MS = 2_500L
+        private const val END_OF_TRACK_SECONDS = 10f
+        private const val TRACK_CHANGE_STABILIZATION_MS = 2_500L
+        private const val MANUAL_BURST_WINDOW_MS = 1_500L
+        private const val MAX_MAIN_POLL_DELAY_MS = 30_000L
     }
 }

@@ -56,6 +56,7 @@ val stageNativeMediaBridge by tasks.registering(Copy::class) {
 
 repositories {
 	maven("https://maven.wispforest.io")
+	maven("https://jitpack.io")
 	maven("https://api.modrinth.com/maven") {
 		name = "Modrinth"
 		content {
