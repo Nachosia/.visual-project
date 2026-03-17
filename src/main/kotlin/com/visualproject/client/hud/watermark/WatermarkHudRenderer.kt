@@ -1,11 +1,18 @@
 package com.visualproject.client.hud.watermark
 
+import com.mojang.blaze3d.platform.NativeImage
 import com.visualproject.client.vText
 import com.visualproject.client.vBrandText
 import net.minecraft.client.DeltaTracker
 import net.minecraft.client.Minecraft
 import net.minecraft.client.gui.Font
 import net.minecraft.client.gui.GuiGraphics
+import net.minecraft.client.renderer.texture.DynamicTexture
+import net.minecraft.resources.ResourceLocation
+import org.slf4j.LoggerFactory
+import java.nio.file.Files
+import java.nio.file.Path
+import kotlin.math.abs
 import kotlin.math.min
 import kotlin.math.roundToInt
 import kotlin.math.sqrt
@@ -37,8 +44,16 @@ class WatermarkHudRenderer(
 
     private val stateCalculator = WatermarkStateCalculator(musicProvider)
     private val animation = WatermarkAnimationController()
+    private val logger = LoggerFactory.getLogger("visualclient-watermark-hud")
 
     private var wasLeftMousePressed = false
+    private var smoothedTrackKey: String? = null
+    private var smoothedPositionSeconds = 0f
+    private var smoothedDurationSeconds = 0f
+    private var lastProviderSnapshot: WatermarkTrackInfo? = null
+
+    private val artworkTextureCache = HashMap<String, ResourceLocation>()
+    private val artworkLoadFailures = HashSet<String>()
 
     fun render(
         context: GuiGraphics,
@@ -66,19 +81,20 @@ class WatermarkHudRenderer(
         )
 
         val bounds = computeBounds(context, snapshot.expansion)
+        val renderTrack = state.track?.let { prepareRenderTrack(client, it, snapshot.deltaSeconds) }
         drawMainShell(context, bounds, snapshot.expansion)
 
         val compactAlpha = (1f - (snapshot.expansion * 0.36f)).coerceIn(0.50f, 1f)
-        if (state.mode == WatermarkMode.DEFAULT || state.track == null) {
+        if (state.mode == WatermarkMode.DEFAULT || renderTrack == null) {
             drawDefaultCompact(context, font, bounds, client, compactAlpha)
             consumeClickState(client)
             return
         }
 
-        drawMusicCompact(context, font, bounds, state.track, snapshot.marqueePx, compactAlpha)
+        drawMusicCompact(context, font, bounds, renderTrack, snapshot.marqueePx, compactAlpha)
 
         val controls = if (snapshot.expansion > 0.01f && state.canExpand) {
-            drawExpandedMusic(context, font, bounds, state.track, snapshot.expansion, mouseX, mouseY)
+            drawExpandedMusic(context, font, bounds, renderTrack, snapshot.expansion, mouseX, mouseY)
         } else {
             null
         }
@@ -221,48 +237,66 @@ class WatermarkHudRenderer(
     ): ControlHitboxes {
         val alpha = expansion.coerceIn(0f, 1f)
         val compactHeight = WatermarkHudTheme.compactHeight
+        val contentLeft = bounds.left + WatermarkHudTheme.expandedPadding
+        val contentTop = bounds.top + compactHeight + 4
+        val contentRight = bounds.left + bounds.width - WatermarkHudTheme.expandedPadding
+        val contentBottom = bounds.top + bounds.height - 5
+        val contentWidth = (contentRight - contentLeft).coerceAtLeast(88)
 
-        val innerX = bounds.left + 8
-        val innerY = bounds.top + compactHeight + 2
-        val innerWidth = (bounds.width - 16).coerceAtLeast(72)
-        val innerHeight = (bounds.height - compactHeight - 5).coerceAtLeast(30)
-
-        // Keep expanded widget cohesive by tinting one continuous body and using only a subtle divider.
         fillRoundedRect(
             context,
-            bounds.left + 1,
-            bounds.top + 1,
-            bounds.width - 2,
-            bounds.height - 2,
-            (WatermarkHudTheme.radius - 1).coerceAtLeast(2),
+            bounds.left + 2,
+            bounds.top + 2,
+            bounds.width - 4,
+            bounds.height - 4,
+            (WatermarkHudTheme.radius - 2).coerceAtLeast(3),
             withAlpha(WatermarkHudTheme.expandedInnerFill, alpha),
         )
         context.fill(
-            bounds.left + 10,
+            bounds.left + 14,
             bounds.top + compactHeight + 1,
-            bounds.left + bounds.width - 10,
+            bounds.left + bounds.width - 14,
             bounds.top + compactHeight + 2,
             withAlpha(WatermarkHudTheme.expandedInnerBorder, alpha),
         )
 
-        val artworkSize = 20
-        val artworkX = innerX + 3
-        val artworkY = innerY + 4
+        val artworkSize = WatermarkHudTheme.expandedArtworkSize
+        val artworkX = contentLeft
+        val artworkY = contentTop
         drawArtwork(context, font, track, artworkX, artworkY, artworkSize, alpha)
 
-        val textLeft = artworkX + artworkSize + 6
-        val titleMaxWidth = (innerX + innerWidth - textLeft - 8).coerceAtLeast(24)
+        val textLeft = artworkX + artworkSize + 8
+        val controlsBottomY = contentBottom - WatermarkHudTheme.expandedControlSize
+        val nextBounds = HudBounds(
+            contentRight - WatermarkHudTheme.expandedControlSize,
+            controlsBottomY,
+            WatermarkHudTheme.expandedControlSize,
+            WatermarkHudTheme.expandedControlSize,
+        )
+        val playBounds = HudBounds(
+            nextBounds.left - WatermarkHudTheme.expandedControlGap - WatermarkHudTheme.expandedControlSize,
+            controlsBottomY,
+            WatermarkHudTheme.expandedControlSize,
+            WatermarkHudTheme.expandedControlSize,
+        )
+        val prevBounds = HudBounds(
+            playBounds.left - WatermarkHudTheme.expandedControlGap - WatermarkHudTheme.expandedControlSize,
+            controlsBottomY,
+            WatermarkHudTheme.expandedControlSize,
+            WatermarkHudTheme.expandedControlSize,
+        )
+
+        val titleMaxWidth = (contentRight - textLeft).coerceAtLeast(40)
         val clippedTitle = clipStyledText(track.title, titleMaxWidth, font)
         val subtitle = track.artist ?: "Unknown Artist"
         val clippedSubtitle = clipStyledText(subtitle, titleMaxWidth, font)
-
         context.drawString(font, clippedTitle, textLeft, artworkY + 1, withAlpha(WatermarkHudTheme.textPrimary, alpha), false)
         context.drawString(font, clippedSubtitle, textLeft, artworkY + 11, withAlpha(WatermarkHudTheme.textSecondary, alpha), false)
 
         val progressX = textLeft
-        val progressY = artworkY + 15
-        val progressWidth = (innerX + innerWidth - progressX - 8).coerceAtLeast(28)
-        val progressHeight = 3
+        val progressY = contentBottom - 17
+        val progressWidth = (prevBounds.left - progressX - 7).coerceAtLeast(34)
+        val progressHeight = 4
 
         drawRoundedPanel(
             context,
@@ -275,40 +309,29 @@ class WatermarkHudRenderer(
             2,
         )
 
-        val fillWidth = (progressWidth * track.progressNormalized).roundToInt().coerceAtLeast(1)
-        fillRoundedRect(
-            context,
-            progressX + 1,
-            progressY + 1,
-            (fillWidth - 2).coerceAtLeast(1),
-            (progressHeight - 2).coerceAtLeast(1),
-            1,
-            withAlpha(WatermarkHudTheme.progressFill, alpha),
-        )
-
-        val sourceText = when (track.source.lowercase()) {
-            "spotify" -> "Spotify"
-            "soundcloud" -> "SoundCloud"
-            else -> track.source
+        val fillWidth = (progressWidth * track.progressNormalized).roundToInt()
+            .coerceIn(0, progressWidth)
+        if (fillWidth > 2) {
+            fillRoundedRect(
+                context,
+                progressX + 1,
+                progressY + 1,
+                fillWidth - 2,
+                (progressHeight - 2).coerceAtLeast(1),
+                1,
+                withAlpha(WatermarkHudTheme.progressFill, alpha),
+            )
         }
-        val timeText = "${formatTime(track.positionSeconds)} / ${formatTime(track.durationSeconds)}   $sourceText"
-        val timeWidth = font.width(vText(timeText))
+
+        val timeText = "${formatTime(track.positionSeconds)} / ${formatTime(track.durationSeconds)}"
         context.drawString(
             font,
             vText(timeText),
-            progressX + progressWidth - timeWidth,
-            progressY + 5,
+            progressX,
+            progressY + 7,
             withAlpha(WatermarkHudTheme.textMuted, alpha),
             false,
         )
-
-        val buttonSize = 11
-        val buttonsY = progressY + 4
-        val centerX = innerX + (innerWidth / 2)
-
-        val prevBounds = HudBounds(centerX - 25, buttonsY, buttonSize, buttonSize)
-        val playBounds = HudBounds(centerX - 7, buttonsY, buttonSize, buttonSize)
-        val nextBounds = HudBounds(centerX + 11, buttonsY, buttonSize, buttonSize)
 
         drawControlButton(
             context, font, prevBounds, "<", alpha,
@@ -411,7 +434,12 @@ class WatermarkHudRenderer(
         if (!isNewClick || controls == null || expansion < 0.45f) return
 
         val hoveredControl = controls.resolveHovered(mouseX, mouseY) ?: return
-        val playbackController = musicProvider.playbackController(client) ?: return
+        val playbackController = musicProvider.playbackController(client)
+        if (playbackController == null) {
+            logger.warn("watermark-control: clicked '{}' but playback controller is unavailable", hoveredControl.name)
+            return
+        }
+        logger.info("watermark-control: clicked '{}'", hoveredControl.name)
 
         when (hoveredControl) {
             ControlButton.PREVIOUS -> playbackController.previous(client)
@@ -422,6 +450,93 @@ class WatermarkHudRenderer(
 
     private fun consumeClickState(client: Minecraft) {
         wasLeftMousePressed = client.mouseHandler.isLeftPressed
+    }
+
+    private fun prepareRenderTrack(client: Minecraft, track: WatermarkTrackInfo, deltaSeconds: Float): WatermarkTrackInfo {
+        val key = "${track.source}|${track.title}|${track.artist.orEmpty()}"
+        val providerSnapshotChanged = lastProviderSnapshot !== track
+
+        if (smoothedTrackKey != key) {
+            smoothedTrackKey = key
+            smoothedPositionSeconds = track.positionSeconds.coerceAtLeast(0f)
+            smoothedDurationSeconds = track.durationSeconds.coerceAtLeast(0f)
+            lastProviderSnapshot = track
+        } else if (providerSnapshotChanged) {
+            val targetPosition = track.positionSeconds.coerceAtLeast(0f)
+            val diff = targetPosition - smoothedPositionSeconds
+            smoothedPositionSeconds = when {
+                abs(diff) >= 7f -> targetPosition
+                else -> smoothedPositionSeconds + (diff * 0.34f)
+            }
+
+            val targetDuration = track.durationSeconds.coerceAtLeast(0f)
+            smoothedDurationSeconds = when {
+                targetDuration <= 0f -> smoothedDurationSeconds
+                smoothedDurationSeconds <= 0f -> targetDuration
+                else -> smoothedDurationSeconds + ((targetDuration - smoothedDurationSeconds) * 0.30f)
+            }
+            lastProviderSnapshot = track
+        }
+
+        if (track.playbackState == WatermarkPlaybackState.PLAYING) {
+            smoothedPositionSeconds += deltaSeconds.coerceIn(0f, 0.05f)
+        }
+
+        val clampDuration = maxOf(smoothedDurationSeconds, track.durationSeconds)
+        smoothedPositionSeconds = if (clampDuration > 0f) {
+            smoothedPositionSeconds.coerceIn(0f, clampDuration)
+        } else {
+            smoothedPositionSeconds.coerceAtLeast(0f)
+        }
+
+        val artworkTexture = resolveArtworkTexture(client, track.artworkPath)
+
+        return track.copy(
+            positionSeconds = smoothedPositionSeconds,
+            durationSeconds = smoothedDurationSeconds.coerceAtLeast(track.durationSeconds.coerceAtLeast(0f)),
+            artworkTexture = artworkTexture,
+        )
+    }
+
+    private fun resolveArtworkTexture(client: Minecraft, artworkPath: String?): ResourceLocation? {
+        if (artworkPath.isNullOrBlank()) return null
+
+        artworkTextureCache[artworkPath]?.let { return it }
+
+        val path = try {
+            Path.of(artworkPath)
+        } catch (throwable: Throwable) {
+            if (artworkLoadFailures.add(artworkPath)) {
+                logger.warn("watermark-artwork: invalid path '{}'", artworkPath, throwable)
+            }
+            return null
+        }
+
+        if (!Files.exists(path)) {
+            if (artworkLoadFailures.add(artworkPath)) {
+                logger.warn("watermark-artwork: file does not exist '{}'", artworkPath)
+            }
+            return null
+        }
+
+        return try {
+            Files.newInputStream(path).use { stream ->
+                val image = NativeImage.read(stream)
+                val textureId = ResourceLocation.fromNamespaceAndPath(
+                    "visualclient",
+                    "watermark_artwork_${artworkPath.hashCode().toUInt().toString(16)}",
+                )
+                client.textureManager.register(textureId, DynamicTexture({ "visualclient-watermark-artwork" }, image))
+                artworkTextureCache[artworkPath] = textureId
+                logger.info("watermark-artwork: loaded '{}' as '{}'", artworkPath, textureId)
+                textureId
+            }
+        } catch (throwable: Throwable) {
+            if (artworkLoadFailures.add(artworkPath)) {
+                logger.warn("watermark-artwork: failed to load '{}'", artworkPath, throwable)
+            }
+            null
+        }
     }
 
     private fun calculateCompactMusicTextWidth(widgetWidth: Int): Int {

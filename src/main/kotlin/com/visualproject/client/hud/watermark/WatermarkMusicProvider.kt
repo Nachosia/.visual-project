@@ -28,6 +28,7 @@ data class WatermarkTrackInfo(
     val positionSeconds: Float = 0f,
     val durationSeconds: Float = 0f,
     val playbackState: WatermarkPlaybackState = WatermarkPlaybackState.PLAYING,
+    val artworkPath: String? = null,
     val artworkTexture: ResourceLocation? = null,
 ) {
     val progressNormalized: Float
@@ -62,6 +63,11 @@ internal data class SessionSnapshot(
     val positionSeconds: Float,
     val durationSeconds: Float,
     val artworkPath: String?,
+    val isCurrent: Boolean,
+    val playbackError: String?,
+    val timelineError: String?,
+    val mediaError: String?,
+    val error: String?,
 )
 
 internal interface MediaSessionGateway {
@@ -92,7 +98,11 @@ internal class WindowsNativeBridgeGateway : MediaSessionGateway {
         if (!isWindows()) return emptyList()
 
         val helperPath = ensureHelperBinary() ?: return emptyList()
-        val command = listOf(helperPath.toAbsolutePath().toString(), "query")
+        val command = buildList {
+            add(helperPath.toAbsolutePath().toString())
+            add("query")
+            if (debugMediaSessions) add("--debug")
+        }
         val execution = executeProcess(command, timeoutMs = 6_500L)
 
         if (!execution.success) {
@@ -117,6 +127,9 @@ internal class WindowsNativeBridgeGateway : MediaSessionGateway {
                 execution.stderr.length,
                 shorten(execution.stdout, 700),
             )
+            if (execution.stderr.isNotBlank()) {
+                logger.info("media-gateway: helper-debug='{}'", shorten(execution.stderr, 6000))
+            }
         }
 
         return parseSessionSnapshots(execution.stdout)
@@ -126,14 +139,15 @@ internal class WindowsNativeBridgeGateway : MediaSessionGateway {
         if (!isWindows() || sourceQuery.isBlank()) return false
 
         val helperPath = ensureHelperBinary() ?: return false
-        val command = listOf(
-            helperPath.toAbsolutePath().toString(),
-            "control",
-            "--source",
-            sourceQuery,
-            "--action",
-            action.id,
-        )
+        val command = buildList {
+            add(helperPath.toAbsolutePath().toString())
+            add("control")
+            add("--source")
+            add(sourceQuery)
+            add("--action")
+            add(action.id)
+            if (debugMediaSessions) add("--debug")
+        }
 
         val execution = executeProcess(command, timeoutMs = 4_500L)
         if (!execution.success) {
@@ -141,8 +155,13 @@ internal class WindowsNativeBridgeGateway : MediaSessionGateway {
             return false
         }
 
-        if (debugMediaSessions && execution.stdout.isNotBlank()) {
-            logger.info("media-gateway: control stdout='{}'", shorten(execution.stdout, 400))
+        if (debugMediaSessions) {
+            if (execution.stdout.isNotBlank()) {
+                logger.info("media-gateway: control stdout='{}'", shorten(execution.stdout, 400))
+            }
+            if (execution.stderr.isNotBlank()) {
+                logger.info("media-gateway: control stderr='{}'", shorten(execution.stderr, 1000))
+            }
         }
 
         return true
@@ -288,6 +307,11 @@ internal class WindowsNativeBridgeGateway : MediaSessionGateway {
             positionSeconds = (obj.get("position")?.asFloat ?: 0f).coerceAtLeast(0f),
             durationSeconds = (obj.get("duration")?.asFloat ?: 0f).coerceAtLeast(0f),
             artworkPath = obj.get("artworkPath")?.asString?.trim().orEmpty().ifBlank { null },
+            isCurrent = obj.get("isCurrent")?.asBoolean ?: false,
+            playbackError = obj.get("playbackError")?.asString?.trim().orEmpty().ifBlank { null },
+            timelineError = obj.get("timelineError")?.asString?.trim().orEmpty().ifBlank { null },
+            mediaError = obj.get("mediaError")?.asString?.trim().orEmpty().ifBlank { null },
+            error = obj.get("error")?.asString?.trim().orEmpty().ifBlank { null },
         )
     }
 
@@ -400,8 +424,29 @@ internal class SpotifySoundCloudMusicProvider(
     }
 
     private fun enqueueControl(action: PlaybackAction) {
-        val query = controlQueryRef.get() ?: return
-        poller.execute { gateway.control(query, action) }
+        val query = controlQueryRef.get()
+        if (query.isNullOrBlank()) {
+            logger.warn("media-control: action='{}' skipped, no active source query", action.id)
+            return
+        }
+
+        logger.info("media-control: click action='{}' source='{}'", action.id, shorten(query, 96))
+        if (action == PlaybackAction.TOGGLE) {
+            cachedTrackRef.updateAndGet { track ->
+                track?.copy(
+                    playbackState = if (track.playbackState == WatermarkPlaybackState.PLAYING) {
+                        WatermarkPlaybackState.PAUSED
+                    } else {
+                        WatermarkPlaybackState.PLAYING
+                    }
+                )
+            }
+        }
+
+        poller.execute {
+            val ok = gateway.control(query, action)
+            logger.info("media-control: result action='{}' source='{}' ok={}", action.id, shorten(query, 96), ok)
+        }
     }
 
     private fun safeRefresh() {
@@ -415,20 +460,32 @@ internal class SpotifySoundCloudMusicProvider(
     private fun refreshFromGateway() {
         val sessions = gateway.querySessions()
         val evaluations = sessions.map(::evaluateSession)
-        val best = evaluations.firstOrNull { it.accepted }
+        val best = evaluations.firstOrNull { it.accepted && it.session.isCurrent }
+            ?: evaluations.firstOrNull { it.accepted }
 
         if (best == null) {
             cachedTrackRef.set(null)
             controlQueryRef.set(null)
         } else {
+            val normalizedSource = when {
+                isSpotifySession(best.session) -> "spotify"
+                isSoundCloudSession(best.session) -> "soundcloud"
+                else -> "unknown"
+            }
+            val playbackState = if (isPlaying(best.session.status)) {
+                WatermarkPlaybackState.PLAYING
+            } else {
+                WatermarkPlaybackState.PAUSED
+            }
             cachedTrackRef.set(
                 WatermarkTrackInfo(
                     title = best.session.title,
                     artist = best.session.artist.ifBlank { null },
-                    source = if (best.session.source.isBlank()) "unknown" else best.session.source,
+                    source = normalizedSource,
                     positionSeconds = best.session.positionSeconds,
                     durationSeconds = best.session.durationSeconds,
-                    playbackState = WatermarkPlaybackState.PLAYING,
+                    playbackState = playbackState,
+                    artworkPath = best.session.artworkPath,
                     artworkTexture = null,
                 )
             )
@@ -441,14 +498,18 @@ internal class SpotifySoundCloudMusicProvider(
     }
 
     private fun evaluateSession(session: SessionSnapshot): MatchEvaluation {
-        val playing = isPlaying(session.status)
+        val active = isPlaying(session.status) || isPaused(session.status)
         val titlePresent = session.title.isNotBlank()
+        val spotify = isSpotifySession(session)
+        val soundCloud = isSoundCloudSession(session)
 
-        val accepted = playing && titlePresent
+        val accepted = active && titlePresent && (spotify || soundCloud)
         val reason = when {
-            accepted -> "accepted: playing + non-empty title"
-            !playing -> "rejected: status is not playing (${session.status})"
+            accepted && spotify -> "accepted: spotify session with valid metadata"
+            accepted && soundCloud -> "accepted: soundcloud session with valid metadata"
+            !active -> "rejected: status is not active (${session.status})"
             !titlePresent -> "rejected: title is empty"
+            !spotify && !soundCloud -> "rejected: source is not spotify/soundcloud"
             else -> "rejected: unknown"
         }
 
@@ -464,6 +525,29 @@ internal class SpotifySoundCloudMusicProvider(
         return normalized == "playing" || normalized == "4"
     }
 
+    private fun isPaused(status: String): Boolean {
+        val normalized = status.trim().lowercase(Locale.ROOT)
+        return normalized == "paused" || normalized == "5"
+    }
+
+    private fun isSpotifySession(session: SessionSnapshot): Boolean {
+        val haystack = listOf(session.source, session.title, session.artist, session.album, session.subtitle)
+            .joinToString(" ")
+            .lowercase(Locale.ROOT)
+        return "spotify" in haystack
+    }
+
+    private fun isSoundCloudSession(session: SessionSnapshot): Boolean {
+        val source = session.source.lowercase(Locale.ROOT)
+        val metadata = listOf(session.title, session.artist, session.album, session.subtitle)
+            .joinToString(" ")
+            .lowercase(Locale.ROOT)
+
+        if ("soundcloud" in source) return true
+        val browserSession = BROWSER_MARKERS.any { marker -> marker in source }
+        return browserSession && "soundcloud" in metadata
+    }
+
     private fun logDebugEvaluations(
         evaluations: List<MatchEvaluation>,
         best: MatchEvaluation?,
@@ -477,14 +561,16 @@ internal class SpotifySoundCloudMusicProvider(
 
         evaluations.forEachIndexed { index, eval ->
             logger.info(
-                "media-debug: session#{} {} source='{}' status='{}' title='{}' artist='{}' reason='{}'",
+                "media-debug: session#{} {} source='{}' status='{}' current={} title='{}' artist='{}' reason='{}' stepErrors='{}'",
                 index,
                 if (eval.accepted) "ACCEPT" else "REJECT",
                 shorten(eval.session.source, 72),
                 eval.session.status,
+                eval.session.isCurrent,
                 shorten(eval.session.title, 60),
                 shorten(eval.session.artist, 40),
                 eval.reason,
+                shorten(eval.session.error.orEmpty(), 220),
             )
         }
 
@@ -502,5 +588,9 @@ internal class SpotifySoundCloudMusicProvider(
     private fun shorten(value: String, max: Int): String {
         if (value.length <= max) return value
         return value.substring(0, max.coerceAtLeast(4) - 3) + "..."
+    }
+
+    companion object {
+        private val BROWSER_MARKERS = listOf("chrome", "msedge", "edge", "firefox", "opera", "brave", "vivaldi", "arc")
     }
 }
