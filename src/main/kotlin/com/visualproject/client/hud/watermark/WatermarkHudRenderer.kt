@@ -7,6 +7,7 @@ import net.minecraft.client.DeltaTracker
 import net.minecraft.client.Minecraft
 import net.minecraft.client.gui.Font
 import net.minecraft.client.gui.GuiGraphics
+import net.minecraft.client.renderer.RenderPipelines
 import net.minecraft.client.renderer.texture.DynamicTexture
 import net.minecraft.resources.ResourceLocation
 import org.slf4j.LoggerFactory
@@ -20,6 +21,22 @@ import kotlin.math.sqrt
 class WatermarkHudRenderer(
     private val musicProvider: WatermarkMusicProvider = SpotifySoundCloudMusicProvider(),
 ) {
+
+    private data class ArtworkResolution(
+        val texture: ResourceLocation?,
+        val reason: String,
+        val textureWidth: Int = 0,
+        val textureHeight: Int = 0,
+    )
+
+    private data class ArtworkCacheKey(
+        val path: String,
+        val sizeBytes: Long,
+        val lastModifiedEpochMillis: Long,
+    ) {
+        val textureSuffix: String
+            get() = "${path.hashCode().toUInt().toString(16)}_${sizeBytes.toULong().toString(16)}_${lastModifiedEpochMillis.toULong().toString(16)}"
+    }
 
     private enum class ControlButton {
         PREVIOUS,
@@ -51,9 +68,32 @@ class WatermarkHudRenderer(
     private var smoothedPositionSeconds = 0f
     private var smoothedDurationSeconds = 0f
     private var lastProviderSnapshot: WatermarkTrackInfo? = null
+    private var currentArtworkPath: String? = null
+    private var lastArtworkResolveReason: String = "uninitialized"
+    private var lastArtworkResolveState: String? = null
+    private var lastSuccessfulArtworkTexture: ResourceLocation? = null
+    private var lastSuccessfulArtworkPath: String? = null
+    private var lastSuccessfulArtworkWidth: Int = 0
+    private var lastSuccessfulArtworkHeight: Int = 0
+    private var lastExpandedFillState: String? = null
+    private var displayedArtworkTexture: ResourceLocation? = null
+    private var displayedArtworkPath: String? = null
+    private var previousArtworkTexture: ResourceLocation? = null
+    private var artworkSwitchStartedAtMs: Long = 0L
+    private val artworkSwitchDurationMs = 165L
+    private val lastArtworkDrawStateBySlot = HashMap<String, String>()
 
-    private val artworkTextureCache = HashMap<String, ResourceLocation>()
+    private val artworkTextureCache = HashMap<ArtworkCacheKey, ResourceLocation>()
+    private val artworkTextureSizes = HashMap<ArtworkCacheKey, Pair<Int, Int>>()
+    private val artworkSourceSizeByPath = HashMap<String, Pair<Int, Int>>()
+    private val artworkSizeByTexture = HashMap<ResourceLocation, Pair<Int, Int>>()
     private val artworkLoadFailures = HashSet<String>()
+    private val artworkLoggedExists = HashSet<String>()
+    private val artworkLoggedSignatures = HashSet<ArtworkCacheKey>()
+    private val artworkRetryAfterMillis = HashMap<String, Long>()
+    private val debugArtworkPipeline = System.getProperty("visualclient.media.debug", "true").toBoolean()
+    private val debugControls = System.getProperty("visualclient.media.debug", "true").toBoolean()
+    private val artworkTextureLogicalSize = 96
 
     fun render(
         context: GuiGraphics,
@@ -84,7 +124,7 @@ class WatermarkHudRenderer(
         val renderTrack = state.track?.let { prepareRenderTrack(client, it, snapshot.deltaSeconds) }
         drawMainShell(context, bounds, snapshot.expansion)
 
-        val compactAlpha = (1f - (snapshot.expansion * 0.36f)).coerceIn(0.50f, 1f)
+        val compactAlpha = (1f - (snapshot.expansion * 1.15f)).coerceIn(0f, 1f)
         if (state.mode == WatermarkMode.DEFAULT || renderTrack == null) {
             drawDefaultCompact(context, font, bounds, client, compactAlpha)
             consumeClickState(client)
@@ -184,22 +224,13 @@ class WatermarkHudRenderer(
         marqueeOffsetPx: Float,
         alpha: Float,
     ) {
-        val iconSize = 14
+        val iconSize = WatermarkHudTheme.compactArtworkSize
         val iconX = bounds.left + WatermarkHudTheme.paddingX
         val iconY = bounds.top + (WatermarkHudTheme.compactHeight - iconSize) / 2
         val baselineY = bounds.top + ((WatermarkHudTheme.compactHeight - font.lineHeight) / 2)
 
-        drawRoundedPanel(
-            context,
-            iconX,
-            iconY,
-            iconSize,
-            iconSize,
-            withAlpha(WatermarkHudTheme.iconFill, alpha),
-            withAlpha(WatermarkHudTheme.iconBorder, alpha),
-            6,
-        )
-        context.drawString(font, vText("M"), iconX + 4, iconY + 3, withAlpha(WatermarkHudTheme.accent, alpha), false)
+        // Compact mode uses the same artwork pipeline as expanded mode.
+        drawArtwork(context, font, track, iconX, iconY, iconSize, alpha, slot = "compact")
 
         val rightMarker = if (track.playbackState == WatermarkPlaybackState.PLAYING) "PLAY" else "PAUSE"
         val rightMarkerWidth = font.width(vText(rightMarker))
@@ -236,66 +267,88 @@ class WatermarkHudRenderer(
         mouseY: Int,
     ): ControlHitboxes {
         val alpha = expansion.coerceIn(0f, 1f)
-        val compactHeight = WatermarkHudTheme.compactHeight
         val contentLeft = bounds.left + WatermarkHudTheme.expandedPadding
-        val contentTop = bounds.top + compactHeight + 4
+        val contentTop = bounds.top + WatermarkHudTheme.expandedPadding - 1
         val contentRight = bounds.left + bounds.width - WatermarkHudTheme.expandedPadding
-        val contentBottom = bounds.top + bounds.height - 5
-        val contentWidth = (contentRight - contentLeft).coerceAtLeast(88)
+        val contentBottom = bounds.top + bounds.height - WatermarkHudTheme.expandedPadding + 1
 
+        // Keep expanded state as one cohesive rounded body (no rectangular "forehead" strip).
+        val innerRadius = (WatermarkHudTheme.radius - 1).coerceAtLeast(10)
         fillRoundedRect(
             context,
-            bounds.left + 2,
-            bounds.top + 2,
-            bounds.width - 4,
-            bounds.height - 4,
-            (WatermarkHudTheme.radius - 2).coerceAtLeast(3),
+            bounds.left + 1,
+            bounds.top + 1,
+            bounds.width - 2,
+            bounds.height - 2,
+            innerRadius,
             withAlpha(WatermarkHudTheme.expandedInnerFill, alpha),
         )
-        context.fill(
-            bounds.left + 14,
-            bounds.top + compactHeight + 1,
-            bounds.left + bounds.width - 14,
-            bounds.top + compactHeight + 2,
-            withAlpha(WatermarkHudTheme.expandedInnerBorder, alpha),
-        )
+        if (debugArtworkPipeline) {
+            val state = "${bounds.left},${bounds.top},${bounds.width},${bounds.height}"
+            if (lastExpandedFillState != state) {
+                lastExpandedFillState = state
+                logger.info(
+                    "watermark-panel: expanded-fill bounds=({}, {}) {}x{} alpha={} mode=rounded-body",
+                    bounds.left + 1,
+                    bounds.top + 1,
+                    bounds.width - 2,
+                    bounds.height - 2,
+                    "%.2f".format(alpha),
+                )
+            }
+        }
 
         val artworkSize = WatermarkHudTheme.expandedArtworkSize
         val artworkX = contentLeft
-        val artworkY = contentTop
-        drawArtwork(context, font, track, artworkX, artworkY, artworkSize, alpha)
+        val artworkY = (contentTop + ((contentBottom - contentTop - artworkSize) / 2)).coerceAtLeast(contentTop)
+        val artworkBottom = artworkY + artworkSize
+        drawArtwork(context, font, track, artworkX, artworkY, artworkSize, alpha, slot = "expanded")
 
-        val textLeft = artworkX + artworkSize + 8
-        val controlsBottomY = contentBottom - WatermarkHudTheme.expandedControlSize
-        val nextBounds = HudBounds(
-            contentRight - WatermarkHudTheme.expandedControlSize,
-            controlsBottomY,
+        val textLeft = artworkX + artworkSize + 9
+        val controlsWidth = (WatermarkHudTheme.expandedControlSize * 3) + (WatermarkHudTheme.expandedControlGap * 2)
+        val controlsX = contentRight - controlsWidth
+        val controlsY = (artworkBottom - WatermarkHudTheme.expandedControlSize).coerceIn(
+            contentTop + 1,
+            contentBottom - WatermarkHudTheme.expandedControlSize,
+        )
+        val prevBounds = HudBounds(
+            controlsX,
+            controlsY,
             WatermarkHudTheme.expandedControlSize,
             WatermarkHudTheme.expandedControlSize,
         )
         val playBounds = HudBounds(
-            nextBounds.left - WatermarkHudTheme.expandedControlGap - WatermarkHudTheme.expandedControlSize,
-            controlsBottomY,
+            prevBounds.left + WatermarkHudTheme.expandedControlSize + WatermarkHudTheme.expandedControlGap,
+            controlsY,
             WatermarkHudTheme.expandedControlSize,
             WatermarkHudTheme.expandedControlSize,
         )
-        val prevBounds = HudBounds(
-            playBounds.left - WatermarkHudTheme.expandedControlGap - WatermarkHudTheme.expandedControlSize,
-            controlsBottomY,
+        val nextBounds = HudBounds(
+            playBounds.left + WatermarkHudTheme.expandedControlSize + WatermarkHudTheme.expandedControlGap,
+            controlsY,
             WatermarkHudTheme.expandedControlSize,
             WatermarkHudTheme.expandedControlSize,
         )
 
-        val titleMaxWidth = (contentRight - textLeft).coerceAtLeast(40)
+        val textRight = (controlsX - 8).coerceAtLeast(textLeft + 32)
+        val titleMaxWidth = (textRight - textLeft).coerceAtLeast(40)
         val clippedTitle = clipStyledText(track.title, titleMaxWidth, font)
         val subtitle = track.artist ?: "Unknown Artist"
         val clippedSubtitle = clipStyledText(subtitle, titleMaxWidth, font)
-        context.drawString(font, clippedTitle, textLeft, artworkY + 1, withAlpha(WatermarkHudTheme.textPrimary, alpha), false)
-        context.drawString(font, clippedSubtitle, textLeft, artworkY + 11, withAlpha(WatermarkHudTheme.textSecondary, alpha), false)
+        val titleY = (artworkY + 1).coerceAtLeast(contentTop + 1)
+        val artistY = (titleY + font.lineHeight + 1).coerceAtMost(controlsY - 14)
+        context.drawString(font, clippedTitle, textLeft, titleY, withAlpha(WatermarkHudTheme.textPrimary, alpha), false)
+        context.drawString(font, clippedSubtitle, textLeft, artistY, withAlpha(WatermarkHudTheme.textSecondary, alpha), false)
 
         val progressX = textLeft
-        val progressY = contentBottom - 17
-        val progressWidth = (prevBounds.left - progressX - 7).coerceAtLeast(34)
+        val timeText = "${formatTime(track.positionSeconds)} / ${formatTime(track.durationSeconds)}"
+        val timeWidth = font.width(vText(timeText))
+        val progressY = (artworkBottom - 5).coerceIn(
+            artistY + font.lineHeight + 2,
+            contentBottom - 6,
+        )
+        val timeX = (controlsX - 6 - timeWidth).coerceAtLeast(progressX + 24)
+        val progressWidth = (timeX - progressX - 7).coerceAtLeast(30)
         val progressHeight = 4
 
         drawRoundedPanel(
@@ -323,12 +376,11 @@ class WatermarkHudRenderer(
             )
         }
 
-        val timeText = "${formatTime(track.positionSeconds)} / ${formatTime(track.durationSeconds)}"
         context.drawString(
             font,
             vText(timeText),
-            progressX,
-            progressY + 7,
+            timeX,
+            controlsY + ((WatermarkHudTheme.expandedControlSize - font.lineHeight) / 2),
             withAlpha(WatermarkHudTheme.textMuted, alpha),
             false,
         )
@@ -359,22 +411,93 @@ class WatermarkHudRenderer(
         y: Int,
         size: Int,
         alpha: Float,
+        slot: String,
     ) {
-        drawRoundedPanel(
-            context,
-            x,
-            y,
-            size,
-            size,
-            withAlpha(0xA2121624.toInt(), alpha),
-            withAlpha(0x5E3A4560, alpha),
-            5,
-        )
+        val backgroundColor = withAlpha(0xE40A0E18.toInt(), alpha)
+        val borderColor = withAlpha(0x72384766, alpha)
+        context.fill(x, y, x + size, y + size, backgroundColor)
 
-        val texture = track.artworkTexture
+        val texture = track.artworkTexture ?: displayedArtworkTexture
         if (texture != null) {
-            context.blit(texture, x + 1, y + 1, size - 2, size - 2, 0f, 0f, 1f, 1f)
+            val inset = if (slot == "compact") 2 else 2
+            val drawLeft = x + inset
+            val drawTop = y + inset
+            val drawSize = (size - (inset * 2)).coerceAtLeast(1)
+            val (sourceWidth, sourceHeight) = resolveTextureSize(texture, track.artworkPath)
+
+            val now = System.currentTimeMillis()
+            val previous = previousArtworkTexture
+            val transitionProgress = if (previous != null && artworkSwitchStartedAtMs > 0L) {
+                ((now - artworkSwitchStartedAtMs).toFloat() / artworkSwitchDurationMs.toFloat()).coerceIn(0f, 1f)
+            } else {
+                1f
+            }
+
+            if (previous != null && transitionProgress < 1f) {
+                val (previousWidth, previousHeight) = resolveTextureSize(previous, null)
+                blitArtworkTexture(
+                    context = context,
+                    texture = previous,
+                    drawLeft = drawLeft,
+                    drawTop = drawTop,
+                    drawSize = drawSize,
+                    sourceWidth = previousWidth,
+                    sourceHeight = previousHeight,
+                    alpha = (alpha * (1f - transitionProgress)).coerceIn(0f, 1f),
+                )
+                blitArtworkTexture(
+                    context = context,
+                    texture = texture,
+                    drawLeft = drawLeft,
+                    drawTop = drawTop,
+                    drawSize = drawSize,
+                    sourceWidth = sourceWidth,
+                    sourceHeight = sourceHeight,
+                    alpha = (alpha * transitionProgress).coerceIn(0f, 1f),
+                )
+            } else {
+                if (previous != null && transitionProgress >= 1f) {
+                    previousArtworkTexture = null
+                    artworkSwitchStartedAtMs = 0L
+                    if (debugArtworkPipeline) {
+                        logger.info("watermark-artwork: transition complete texture='{}'", texture)
+                    }
+                }
+                blitArtworkTexture(
+                    context = context,
+                    texture = texture,
+                    drawLeft = drawLeft,
+                    drawTop = drawTop,
+                    drawSize = drawSize,
+                    sourceWidth = sourceWidth,
+                    sourceHeight = sourceHeight,
+                    alpha = alpha.coerceIn(0f, 1f),
+                )
+            }
+            drawSquareBorder(context, x, y, size, borderColor)
+            if (debugArtworkPipeline) {
+                val transitionState = if (previousArtworkTexture != null) "crossfade" else "steady"
+                logDrawStateIfChanged(
+                    slot = slot,
+                    state = "texture|path=${track.artworkPath ?: "<null>"}|reason=$lastArtworkResolveReason|mode=$transitionState|method=GUI_TEXTURED|order=bg>tex>border|overlayAfterTexture=border-only|src=${sourceWidth}x${sourceHeight}",
+                    drawLeft = drawLeft,
+                    drawTop = drawTop,
+                    drawSize = drawSize,
+                )
+            }
             return
+        }
+
+        drawSquareBorder(context, x, y, size, borderColor)
+
+        if (debugArtworkPipeline) {
+            logDrawStateIfChanged(
+                slot = slot,
+                state = "placeholder|path=${track.artworkPath ?: "<null>"}|reason=$lastArtworkResolveReason|order=bg>placeholder>border",
+                drawLeft = x + 1,
+                drawTop = y + 1,
+                drawSize = (size - 2).coerceAtLeast(1),
+            )
         }
 
         context.drawString(
@@ -384,6 +507,70 @@ class WatermarkHudRenderer(
             y + (size / 2) - 4,
             withAlpha(WatermarkHudTheme.accent, alpha),
             false,
+        )
+    }
+
+    private fun drawSquareBorder(
+        context: GuiGraphics,
+        x: Int,
+        y: Int,
+        size: Int,
+        color: Int,
+    ) {
+        if (size <= 1) return
+        context.fill(x, y, x + size, y + 1, color)
+        context.fill(x, y + size - 1, x + size, y + size, color)
+        context.fill(x, y, x + 1, y + size, color)
+        context.fill(x + size - 1, y, x + size, y + size, color)
+    }
+
+    private fun logDrawStateIfChanged(
+        slot: String,
+        state: String,
+        drawLeft: Int,
+        drawTop: Int,
+        drawSize: Int,
+    ) {
+        val previous = lastArtworkDrawStateBySlot[slot]
+        if (previous == state) return
+        lastArtworkDrawStateBySlot[slot] = state
+        logger.info(
+            "watermark-artwork: draw-branch slot='{}' state='{}' rect=({}, {}) size={}x{}",
+            slot,
+            state,
+            drawLeft,
+            drawTop,
+            drawSize,
+            drawSize,
+        )
+    }
+
+    private fun blitArtworkTexture(
+        context: GuiGraphics,
+        texture: ResourceLocation,
+        drawLeft: Int,
+        drawTop: Int,
+        drawSize: Int,
+        sourceWidth: Int,
+        sourceHeight: Int,
+        alpha: Float,
+    ) {
+        if (drawSize <= 0 || alpha <= 0f) return
+        val tint = withAlpha(0xFFFFFFFF.toInt(), alpha.coerceIn(0f, 1f))
+        context.blit(
+            RenderPipelines.GUI_TEXTURED,
+            texture,
+            drawLeft,
+            drawTop,
+            0f,
+            0f,
+            drawSize,
+            drawSize,
+            sourceWidth.coerceAtLeast(1),
+            sourceHeight.coerceAtLeast(1),
+            sourceWidth.coerceAtLeast(1),
+            sourceHeight.coerceAtLeast(1),
+            tint,
         )
     }
 
@@ -431,20 +618,71 @@ class WatermarkHudRenderer(
         val isNewClick = leftPressed && !wasLeftMousePressed
         wasLeftMousePressed = leftPressed
 
-        if (!isNewClick || controls == null || expansion < 0.45f) return
+        if (!isNewClick) return
 
-        val hoveredControl = controls.resolveHovered(mouseX, mouseY) ?: return
+        if (debugControls) {
+            logger.info(
+                "watermark-control: click-detected mouse=({}, {}) controlsPresent={} expansion={}",
+                mouseX,
+                mouseY,
+                controls != null,
+                "%.3f".format(expansion),
+            )
+        }
+
+        if (controls == null) {
+            if (debugControls) {
+                logger.info("watermark-control: click ignored, expanded control hitboxes are unavailable")
+            }
+            return
+        }
+
+        if (debugControls) {
+            logger.info(
+                "watermark-control: hitboxes prev=[{},{} {}x{}] play=[{},{} {}x{}] next=[{},{} {}x{}]",
+                controls.previous.left,
+                controls.previous.top,
+                controls.previous.width,
+                controls.previous.height,
+                controls.playPause.left,
+                controls.playPause.top,
+                controls.playPause.width,
+                controls.playPause.height,
+                controls.next.left,
+                controls.next.top,
+                controls.next.width,
+                controls.next.height,
+            )
+        }
+
+        val hoveredControl = controls.resolveHovered(mouseX, mouseY)
+        if (hoveredControl == null) {
+            if (debugControls) {
+                logger.info("watermark-control: click miss (no button hit)")
+            }
+            return
+        }
         val playbackController = musicProvider.playbackController(client)
         if (playbackController == null) {
             logger.warn("watermark-control: clicked '{}' but playback controller is unavailable", hoveredControl.name)
             return
         }
-        logger.info("watermark-control: clicked '{}'", hoveredControl.name)
+        logger.info(
+            "watermark-control: clicked '{}' mouse=({}, {}) expansion={}",
+            hoveredControl.name,
+            mouseX,
+            mouseY,
+            "%.3f".format(expansion),
+        )
 
         when (hoveredControl) {
             ControlButton.PREVIOUS -> playbackController.previous(client)
             ControlButton.PLAY_PAUSE -> playbackController.togglePlayPause(client)
             ControlButton.NEXT -> playbackController.next(client)
+        }
+
+        if (debugControls) {
+            logger.info("watermark-control: dispatch complete button='{}'", hoveredControl.name)
         }
     }
 
@@ -489,19 +727,66 @@ class WatermarkHudRenderer(
             smoothedPositionSeconds.coerceAtLeast(0f)
         }
 
-        val artworkTexture = resolveArtworkTexture(client, track.artworkPath)
+        val artworkResolution = resolveArtworkTexture(client, track.artworkPath)
+        updateDisplayedArtwork(track.artworkPath, artworkResolution.texture)
+        lastArtworkResolveReason = artworkResolution.reason
 
         return track.copy(
             positionSeconds = smoothedPositionSeconds,
             durationSeconds = smoothedDurationSeconds.coerceAtLeast(track.durationSeconds.coerceAtLeast(0f)),
-            artworkTexture = artworkTexture,
+            artworkTexture = displayedArtworkTexture ?: artworkResolution.texture,
         )
     }
 
-    private fun resolveArtworkTexture(client: Minecraft, artworkPath: String?): ResourceLocation? {
-        if (artworkPath.isNullOrBlank()) return null
+    private fun updateDisplayedArtwork(artworkPath: String?, resolvedTexture: ResourceLocation?) {
+        if (resolvedTexture == null) return
+        if (displayedArtworkTexture == null) {
+            displayedArtworkTexture = resolvedTexture
+            displayedArtworkPath = artworkPath
+            previousArtworkTexture = null
+            artworkSwitchStartedAtMs = 0L
+            if (debugArtworkPipeline) {
+                logger.info("watermark-artwork: display initialized path='{}' texture='{}'", artworkPath ?: "<null>", resolvedTexture)
+            }
+            return
+        }
 
-        artworkTextureCache[artworkPath]?.let { return it }
+        if (displayedArtworkTexture == resolvedTexture) {
+            displayedArtworkPath = artworkPath
+            return
+        }
+
+        previousArtworkTexture = displayedArtworkTexture
+        displayedArtworkTexture = resolvedTexture
+        displayedArtworkPath = artworkPath
+        artworkSwitchStartedAtMs = System.currentTimeMillis()
+        if (debugArtworkPipeline) {
+            logger.info(
+                "watermark-artwork: display switch prev='{}' next='{}' path='{}' durationMs={}",
+                previousArtworkTexture,
+                resolvedTexture,
+                artworkPath ?: "<null>",
+                artworkSwitchDurationMs,
+            )
+        }
+    }
+
+    private fun resolveArtworkTexture(client: Minecraft, artworkPath: String?): ArtworkResolution {
+        if (artworkPath.isNullOrBlank()) {
+            val resolution = ArtworkResolution(null, "missing-artwork-path", 0, 0)
+            logResolveStateIfChanged(artworkPath, resolution)
+            return resolution
+        }
+
+        if (currentArtworkPath != artworkPath) {
+            currentArtworkPath?.let { oldPath ->
+                invalidateArtworkPath(oldPath)
+                if (debugArtworkPipeline) {
+                    logger.info("watermark-artwork: artworkPath changed old='{}' new='{}' (cache invalidated for old path)", oldPath, artworkPath)
+                }
+            }
+            currentArtworkPath = artworkPath
+        }
 
         val path = try {
             Path.of(artworkPath)
@@ -509,38 +794,180 @@ class WatermarkHudRenderer(
             if (artworkLoadFailures.add(artworkPath)) {
                 logger.warn("watermark-artwork: invalid path '{}'", artworkPath, throwable)
             }
-            return null
+            val resolution = resolutionOrPrevious("invalid-path", artworkPath)
+            logResolveStateIfChanged(artworkPath, resolution)
+            return resolution
         }
 
-        if (!Files.exists(path)) {
+        val exists = Files.exists(path)
+        if (debugArtworkPipeline && artworkLoggedExists.add(artworkPath)) {
+            logger.info("watermark-artwork: path='{}' exists={}", artworkPath, exists)
+        }
+        if (!exists) {
             if (artworkLoadFailures.add(artworkPath)) {
                 logger.warn("watermark-artwork: file does not exist '{}'", artworkPath)
             }
-            return null
+            val resolution = resolutionOrPrevious("file-missing", artworkPath)
+            logResolveStateIfChanged(artworkPath, resolution)
+            return resolution
+        }
+
+        val sizeBytes = runCatching { Files.size(path) }.getOrDefault(-1L)
+        if (sizeBytes <= 0L) {
+            if (artworkLoadFailures.add(artworkPath)) {
+                logger.warn("watermark-artwork: file is empty path='{}' size={}", artworkPath, sizeBytes)
+            }
+            val resolution = resolutionOrPrevious("file-empty", artworkPath)
+            logResolveStateIfChanged(artworkPath, resolution)
+            return resolution
+        }
+
+        val modifiedMillis = runCatching { Files.getLastModifiedTime(path).toMillis() }.getOrDefault(-1L)
+        val cacheKey = ArtworkCacheKey(artworkPath, sizeBytes, modifiedMillis)
+
+        if (debugArtworkPipeline && artworkLoggedSignatures.add(cacheKey)) {
+            logger.info(
+                "watermark-artwork: signature path='{}' size={} modifiedMs={}",
+                artworkPath,
+                sizeBytes,
+                modifiedMillis,
+            )
+        }
+
+        artworkTextureCache[cacheKey]?.let { cached ->
+            lastSuccessfulArtworkTexture = cached
+            lastSuccessfulArtworkPath = artworkPath
+            val dims = artworkTextureSizes[cacheKey] ?: artworkSourceSizeByPath[artworkPath] ?: (artworkTextureLogicalSize to artworkTextureLogicalSize)
+            lastSuccessfulArtworkWidth = dims.first
+            lastSuccessfulArtworkHeight = dims.second
+            artworkSizeByTexture[cached] = dims
+            val resolution = ArtworkResolution(cached, "cache-hit", dims.first, dims.second)
+            logResolveStateIfChanged(artworkPath, resolution)
+            return resolution
+        }
+
+        val now = System.currentTimeMillis()
+        val retryAfter = artworkRetryAfterMillis[artworkPath] ?: 0L
+        if (now < retryAfter) {
+            val resolution = resolutionOrPrevious("retry-deferred", artworkPath)
+            logResolveStateIfChanged(artworkPath, resolution)
+            return resolution
         }
 
         return try {
-            Files.newInputStream(path).use { stream ->
-                val image = NativeImage.read(stream)
-                val textureId = ResourceLocation.fromNamespaceAndPath(
-                    "visualclient",
-                    "watermark_artwork_${artworkPath.hashCode().toUInt().toString(16)}",
+            val image = loadArtworkImage(path)
+            if (image == null) {
+                artworkRetryAfterMillis[artworkPath] = now + 1_500L
+                logger.warn("watermark-artwork: image decode failed '{}' (placeholder active, will retry)", artworkPath)
+                val resolution = resolutionOrPrevious("decode-failed", artworkPath)
+                logResolveStateIfChanged(artworkPath, resolution)
+                return resolution
+            }
+
+            if (debugArtworkPipeline) {
+                logger.info(
+                    "watermark-artwork: decoder success path='{}' ext='{}' image={}x{}",
+                    artworkPath,
+                    path.fileName.toString().substringAfterLast('.', "<none>"),
+                    image.width,
+                    image.height,
                 )
-                client.textureManager.register(textureId, DynamicTexture({ "visualclient-watermark-artwork" }, image))
-                artworkTextureCache[artworkPath] = textureId
-                logger.info("watermark-artwork: loaded '{}' as '{}'", artworkPath, textureId)
-                textureId
             }
+
+            val textureId = ResourceLocation.fromNamespaceAndPath(
+                "visualclient",
+                "watermark_artwork_${cacheKey.textureSuffix}",
+            )
+
+            // Do not close this NativeImage manually: DynamicTexture owns it after registration.
+            client.textureManager.register(textureId, DynamicTexture({ "visualclient-watermark-artwork" }, image))
+            artworkTextureCache[cacheKey] = textureId
+            artworkTextureSizes[cacheKey] = image.width to image.height
+            artworkSourceSizeByPath[artworkPath] = image.width to image.height
+            artworkSizeByTexture[textureId] = image.width to image.height
+            artworkRetryAfterMillis.remove(artworkPath)
+            artworkLoadFailures.remove(artworkPath)
+            lastSuccessfulArtworkTexture = textureId
+            lastSuccessfulArtworkPath = artworkPath
+            lastSuccessfulArtworkWidth = image.width
+            lastSuccessfulArtworkHeight = image.height
+            logger.info(
+                "watermark-artwork: texture register success path='{}' texture='{}' liveBuffer={}",
+                artworkPath,
+                textureId,
+                artworkPath.endsWith("current_cover.png", ignoreCase = true),
+            )
+            val resolution = ArtworkResolution(textureId, "loaded-texture", image.width, image.height)
+            logResolveStateIfChanged(artworkPath, resolution)
+            resolution
         } catch (throwable: Throwable) {
-            if (artworkLoadFailures.add(artworkPath)) {
-                logger.warn("watermark-artwork: failed to load '{}'", artworkPath, throwable)
+            artworkRetryAfterMillis[artworkPath] = now + 1_500L
+            logger.warn("watermark-artwork: texture load failed path='{}' (placeholder active, will retry)", artworkPath, throwable)
+            val resolution = resolutionOrPrevious("texture-load-exception", artworkPath)
+            logResolveStateIfChanged(artworkPath, resolution)
+            resolution
+        }
+    }
+
+    private fun resolutionOrPrevious(reason: String, artworkPath: String?): ArtworkResolution {
+        val previous = lastSuccessfulArtworkTexture
+        return if (previous != null) {
+            ArtworkResolution(
+                previous,
+                "stale-$reason",
+                lastSuccessfulArtworkWidth.coerceAtLeast(artworkTextureLogicalSize),
+                lastSuccessfulArtworkHeight.coerceAtLeast(artworkTextureLogicalSize),
+            )
+        } else {
+            ArtworkResolution(null, reason, 0, 0)
+        }
+    }
+
+    private fun logResolveStateIfChanged(artworkPath: String?, resolution: ArtworkResolution) {
+        if (!debugArtworkPipeline) return
+        val state = "${artworkPath ?: "<null>"}|${resolution.reason}|texture=${resolution.texture != null}|${resolution.textureWidth}x${resolution.textureHeight}"
+        if (lastArtworkResolveState == state) return
+        lastArtworkResolveState = state
+        logger.info(
+            "watermark-artwork: resolve path='{}' reason='{}' texturePresent={} source={}x{}",
+            artworkPath ?: "<null>",
+            resolution.reason,
+            resolution.texture != null,
+            resolution.textureWidth,
+            resolution.textureHeight,
+        )
+    }
+
+    private fun invalidateArtworkPath(artworkPath: String) {
+        val keysToRemove = artworkTextureCache.keys.filter { it.path == artworkPath }
+        keysToRemove.forEach { key ->
+            val removedTexture = artworkTextureCache.remove(key)
+            artworkTextureSizes.remove(key)
+            if (removedTexture != null && removedTexture != displayedArtworkTexture && removedTexture != previousArtworkTexture) {
+                artworkSizeByTexture.remove(removedTexture)
             }
-            null
+        }
+        artworkRetryAfterMillis.remove(artworkPath)
+    }
+
+    private fun resolveTextureSize(texture: ResourceLocation, artworkPath: String?): Pair<Int, Int> {
+        artworkSizeByTexture[texture]?.let { return it }
+        if (!artworkPath.isNullOrBlank()) {
+            artworkSourceSizeByPath[artworkPath]?.let { return it }
+        }
+        val width = lastSuccessfulArtworkWidth.coerceAtLeast(artworkTextureLogicalSize)
+        val height = lastSuccessfulArtworkHeight.coerceAtLeast(artworkTextureLogicalSize)
+        return width to height
+    }
+
+    private fun loadArtworkImage(path: Path): NativeImage? {
+        return Files.newInputStream(path).use { input ->
+            NativeImage.read(input)
         }
     }
 
     private fun calculateCompactMusicTextWidth(widgetWidth: Int): Int {
-        val iconSize = 14
+        val iconSize = WatermarkHudTheme.compactArtworkSize
         val left = WatermarkHudTheme.paddingX + iconSize + 8
         val rightReserved = WatermarkHudTheme.paddingX + 44
         return (widgetWidth - left - rightReserved).coerceAtLeast(26)

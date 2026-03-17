@@ -10,7 +10,8 @@ import java.io.InputStream
 import java.nio.charset.StandardCharsets
 import java.nio.file.Files
 import java.nio.file.Path
-import java.nio.file.StandardCopyOption
+import java.nio.file.StandardOpenOption
+import java.security.MessageDigest
 import java.util.Locale
 import java.util.concurrent.Executors
 import java.util.concurrent.TimeUnit
@@ -136,24 +137,33 @@ internal class WindowsNativeBridgeGateway : MediaSessionGateway {
     }
 
     override fun control(sourceQuery: String, action: PlaybackAction): Boolean {
-        if (!isWindows() || sourceQuery.isBlank()) return false
+        if (!isWindows()) return false
 
         val helperPath = ensureHelperBinary() ?: return false
         val command = buildList {
             add(helperPath.toAbsolutePath().toString())
             add("control")
-            add("--source")
-            add(sourceQuery)
+            if (sourceQuery.isNotBlank()) {
+                add("--source")
+                add(sourceQuery)
+            }
             add("--action")
             add(action.id)
             if (debugMediaSessions) add("--debug")
         }
 
         val execution = executeProcess(command, timeoutMs = 4_500L)
-        if (!execution.success) {
+        val launched = execution.launched
+        val timedOut = execution.timedOut
+        val exitCode = execution.exitCode
+        val softSuccess = launched && !timedOut && (exitCode == 0 || exitCode == 2)
+
+        if (!softSuccess) {
             logExecutionFailure("control:${action.id}", command, execution)
             return false
         }
+
+        val helperOk = parseControlOk(execution.stdout)
 
         if (debugMediaSessions) {
             if (execution.stdout.isNotBlank()) {
@@ -162,9 +172,16 @@ internal class WindowsNativeBridgeGateway : MediaSessionGateway {
             if (execution.stderr.isNotBlank()) {
                 logger.info("media-gateway: control stderr='{}'", shorten(execution.stderr, 1000))
             }
+            logger.info(
+                "media-gateway: control parsed action='{}' source='{}' exit={} helperOk={}",
+                action.id,
+                if (sourceQuery.isBlank()) "<none>" else shorten(sourceQuery, 96),
+                execution.exitCode,
+                helperOk,
+            )
         }
 
-        return true
+        return helperOk
     }
 
     private fun ensureHelperBinary(): Path? {
@@ -177,8 +194,14 @@ internal class WindowsNativeBridgeGateway : MediaSessionGateway {
                 if (Files.exists(path)) return@synchronized path
             }
 
-            val resourceStream = javaClass.classLoader.getResourceAsStream(HELPER_RESOURCE_PATH)
-            if (resourceStream == null) {
+            val helperBytes = try {
+                javaClass.classLoader.getResourceAsStream(HELPER_RESOURCE_PATH)?.use { input -> input.readBytes() }
+            } catch (throwable: Throwable) {
+                logger.warn("media-gateway: failed to read helper resource '{}'", HELPER_RESOURCE_PATH, throwable)
+                null
+            }
+
+            if (helperBytes == null || helperBytes.isEmpty()) {
                 logger.warn(
                     "media-gateway: helper resource '{}' not found in mod resources; bridge unavailable",
                     HELPER_RESOURCE_PATH,
@@ -187,15 +210,31 @@ internal class WindowsNativeBridgeGateway : MediaSessionGateway {
             }
 
             val baseDir = resolveNativeBridgeDir()
-            val targetPath = baseDir.resolve(HELPER_FILE_NAME)
+            val helperHash = sha1Hex(helperBytes).take(12)
+            val targetPath = baseDir.resolve("${HELPER_FILE_NAME_PREFIX}-$helperHash.exe")
 
             try {
                 Files.createDirectories(baseDir)
-                resourceStream.use { input ->
-                    Files.copy(input, targetPath, StandardCopyOption.REPLACE_EXISTING)
+                val needsWrite = !Files.exists(targetPath) || runCatching { Files.size(targetPath) }.getOrDefault(-1L) != helperBytes.size.toLong()
+
+                if (needsWrite) {
+                    Files.write(
+                        targetPath,
+                        helperBytes,
+                        StandardOpenOption.CREATE,
+                        StandardOpenOption.TRUNCATE_EXISTING,
+                        StandardOpenOption.WRITE,
+                    )
                 }
+
                 cachedHelperPath.set(targetPath)
-                logger.info("media-gateway: extracted helper to '{}'", targetPath)
+                logger.info(
+                    "media-gateway: helper ready path='{}' hash='{}' size={} wroteNew={}",
+                    targetPath,
+                    helperHash,
+                    helperBytes.size,
+                    needsWrite,
+                )
                 targetPath
             } catch (throwable: Throwable) {
                 logger.warn("media-gateway: failed to extract helper binary", throwable)
@@ -206,6 +245,9 @@ internal class WindowsNativeBridgeGateway : MediaSessionGateway {
 
     private fun executeProcess(command: List<String>, timeoutMs: Long): ProcessExecutionResult {
         val startedAt = System.currentTimeMillis()
+        if (debugMediaSessions) {
+            logger.info("media-gateway: execute command={} timeoutMs={}", formatCommand(command), timeoutMs)
+        }
 
         return try {
             val process = ProcessBuilder(command).start()
@@ -358,6 +400,32 @@ internal class WindowsNativeBridgeGateway : MediaSessionGateway {
         }
     }
 
+    private fun parseControlOk(stdout: String): Boolean {
+        if (stdout.isBlank()) {
+            logger.warn("media-gateway: control parse failed, stdout is blank")
+            return false
+        }
+
+        return try {
+            val root = JsonParser.parseString(stdout)
+            if (root.isJsonObject && root.asJsonObject.has("ok")) {
+                root.asJsonObject.get("ok").asBoolean
+            } else {
+                logger.warn("media-gateway: control parse failed, missing 'ok' in stdout='{}'", shorten(stdout, 240))
+                false
+            }
+        } catch (throwable: Throwable) {
+            logger.warn("media-gateway: control parse failed, stdout='{}'", shorten(stdout, 240), throwable)
+            false
+        }
+    }
+
+    private fun sha1Hex(bytes: ByteArray): String {
+        return MessageDigest.getInstance("SHA-1")
+            .digest(bytes)
+            .joinToString("") { b -> "%02x".format(b) }
+    }
+
     private fun isWindows(): Boolean {
         return System.getProperty("os.name", "").lowercase(Locale.ROOT).contains("win")
     }
@@ -369,7 +437,7 @@ internal class WindowsNativeBridgeGateway : MediaSessionGateway {
 
     companion object {
         private const val HELPER_RESOURCE_PATH = "native/win-x64/visual-media-bridge.exe"
-        private const val HELPER_FILE_NAME = "visual-media-bridge.exe"
+        private const val HELPER_FILE_NAME_PREFIX = "visual-media-bridge"
     }
 }
 
@@ -408,7 +476,7 @@ internal class SpotifySoundCloudMusicProvider(
     }
 
     override fun playbackController(client: Minecraft): WatermarkPlaybackController? {
-        return if (cachedTrackRef.get() != null && controlQueryRef.get() != null) this else null
+        return if (cachedTrackRef.get() != null) this else null
     }
 
     override fun previous(client: Minecraft) {
@@ -424,13 +492,14 @@ internal class SpotifySoundCloudMusicProvider(
     }
 
     private fun enqueueControl(action: PlaybackAction) {
-        val query = controlQueryRef.get()
-        if (query.isNullOrBlank()) {
-            logger.warn("media-control: action='{}' skipped, no active source query", action.id)
-            return
-        }
+        val query = controlQueryRef.get().orEmpty()
 
-        logger.info("media-control: click action='{}' source='{}'", action.id, shorten(query, 96))
+        logger.info(
+            "media-control: click action='{}' source='{}' hasSource={}",
+            action.id,
+            if (query.isBlank()) "<none>" else shorten(query, 96),
+            query.isNotBlank(),
+        )
         if (action == PlaybackAction.TOGGLE) {
             cachedTrackRef.updateAndGet { track ->
                 track?.copy(
@@ -444,8 +513,19 @@ internal class SpotifySoundCloudMusicProvider(
         }
 
         poller.execute {
+            logger.info(
+                "media-control: dispatch action='{}' source='{}' thread='{}'",
+                action.id,
+                if (query.isBlank()) "<none>" else shorten(query, 96),
+                Thread.currentThread().name,
+            )
             val ok = gateway.control(query, action)
-            logger.info("media-control: result action='{}' source='{}' ok={}", action.id, shorten(query, 96), ok)
+            logger.info(
+                "media-control: result action='{}' source='{}' ok={}",
+                action.id,
+                if (query.isBlank()) "<none>" else shorten(query, 96),
+                ok,
+            )
         }
     }
 
@@ -467,6 +547,7 @@ internal class SpotifySoundCloudMusicProvider(
             cachedTrackRef.set(null)
             controlQueryRef.set(null)
         } else {
+            val liveArtworkPath = resolveLiveArtworkPath(best.session)
             val normalizedSource = when {
                 isSpotifySession(best.session) -> "spotify"
                 isSoundCloudSession(best.session) -> "soundcloud"
@@ -485,11 +566,37 @@ internal class SpotifySoundCloudMusicProvider(
                     positionSeconds = best.session.positionSeconds,
                     durationSeconds = best.session.durationSeconds,
                     playbackState = playbackState,
-                    artworkPath = best.session.artworkPath,
+                    artworkPath = liveArtworkPath,
                     artworkTexture = null,
                 )
             )
             controlQueryRef.set(best.session.source.ifBlank { null })
+            if (debugMediaSessions) {
+                logger.info(
+                    "media-control: active session source='{}' current={} status='{}'",
+                    shorten(best.session.source, 96),
+                    best.session.isCurrent,
+                    best.session.status,
+                )
+            }
+
+            if (debugMediaSessions) {
+                val artworkPath = liveArtworkPath
+                val artworkFilePath = artworkPath?.let { raw -> runCatching { Path.of(raw) }.getOrNull() }
+                val artworkExists = artworkFilePath?.let { runCatching { Files.exists(it) }.getOrDefault(false) } ?: false
+                val artworkSize = artworkFilePath?.let { runCatching { Files.size(it) }.getOrDefault(-1L) } ?: -1L
+                val artworkModified = artworkFilePath?.let { runCatching { Files.getLastModifiedTime(it).toMillis() }.getOrDefault(-1L) } ?: -1L
+                logger.info(
+                    "media-artwork: selected source='{}' title='{}' artworkPath='{}' exists={} size={} modifiedMs={} stablePathPreferred={}",
+                    shorten(best.session.source, 72),
+                    shorten(best.session.title, 60),
+                    artworkPath ?: "<null>",
+                    artworkExists,
+                    artworkSize,
+                    artworkModified,
+                    best.session.isCurrent,
+                )
+            }
         }
 
         if (debugMediaSessions) {
@@ -588,6 +695,30 @@ internal class SpotifySoundCloudMusicProvider(
     private fun shorten(value: String, max: Int): String {
         if (value.length <= max) return value
         return value.substring(0, max.coerceAtLeast(4) - 3) + "..."
+    }
+
+    private fun resolveLiveArtworkPath(session: SessionSnapshot): String? {
+        if (!session.isCurrent) return session.artworkPath
+
+        val stablePath = buildStableCoverPath()
+        val stableFile = runCatching { Path.of(stablePath) }.getOrNull()
+        if (stableFile != null) {
+            val exists = runCatching { Files.exists(stableFile) }.getOrDefault(false)
+            val size = runCatching { Files.size(stableFile) }.getOrDefault(0L)
+            if (exists && size > 0L) {
+                return stablePath
+            }
+        }
+        return session.artworkPath
+    }
+
+    private fun buildStableCoverPath(): String {
+        val localAppData = System.getenv("LOCALAPPDATA")
+        return if (!localAppData.isNullOrBlank()) {
+            Path.of(localAppData, "VisualClient", "buffer", "current_cover.png").toString()
+        } else {
+            Path.of(System.getProperty("java.io.tmpdir"), "visualclient", "buffer", "current_cover.png").toString()
+        }
     }
 
     companion object {

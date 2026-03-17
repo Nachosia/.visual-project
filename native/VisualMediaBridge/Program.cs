@@ -190,7 +190,12 @@ internal static class Program
                 dto.Artist = media?.Artist ?? string.Empty;
                 dto.Album = media?.AlbumTitle ?? string.Empty;
                 dto.Subtitle = media?.Subtitle ?? string.Empty;
-                dto.ArtworkPath = TryExtractArtworkPath(media?.Thumbnail);
+                dto.ArtworkPath = TryExtractArtworkPath(
+                    media?.Thumbnail,
+                    debug,
+                    source,
+                    isCurrent
+                );
             }
             catch (Exception ex)
             {
@@ -276,69 +281,256 @@ internal static class Program
 
     private static bool Control(string? sourceQuery, string? action, bool debug)
     {
-        if (string.IsNullOrWhiteSpace(sourceQuery) || string.IsNullOrWhiteSpace(action))
+        if (string.IsNullOrWhiteSpace(action))
         {
+            if (debug)
+            {
+                Console.Error.WriteLine(
+                    $"bridge-debug: control invalid-args source-query='{sourceQuery ?? string.Empty}' action='{action ?? string.Empty}'"
+                );
+            }
             return false;
         }
 
+        var actionNormalized = action.Trim().ToLowerInvariant();
         var manager = GlobalSystemMediaTransportControlsSessionManager
             .RequestAsync()
             .AsTask()
             .GetAwaiter()
             .GetResult();
+        var sessions = manager.GetSessions();
+        var currentSession = manager.GetCurrentSession();
 
-        var session = manager.GetSessions().FirstOrDefault(candidate =>
+        if (debug)
         {
-            var source = candidate.SourceAppUserModelId;
-            return !string.IsNullOrWhiteSpace(source) &&
-                   source.Contains(sourceQuery, StringComparison.OrdinalIgnoreCase);
-        });
+            Console.Error.WriteLine(
+                $"bridge-debug: control request source-query='{NormalizeForSingleLine(sourceQuery)}' action='{NormalizeForSingleLine(actionNormalized)}' sessions-found={sessions.Count} thread={Thread.CurrentThread.ManagedThreadId} apartment={Thread.CurrentThread.GetApartmentState()} current='{NormalizeForSingleLine(currentSession?.SourceAppUserModelId ?? string.Empty)}'"
+            );
+            foreach (var candidate in sessions)
+            {
+                Console.Error.WriteLine(
+                    $"bridge-debug: control candidate source='{NormalizeForSingleLine(candidate.SourceAppUserModelId ?? string.Empty)}'"
+                );
+            }
+        }
+
+        GlobalSystemMediaTransportControlsSession? session = null;
+        var matchStrategy = "none";
+        switch (actionNormalized)
+        {
+            case "previous":
+            case "next":
+                if (currentSession is not null)
+                {
+                    session = currentSession;
+                    matchStrategy = "current";
+                }
+                else
+                {
+                    session = MatchSessionBySourceQuery(sessions, sourceQuery, out matchStrategy);
+                }
+                break;
+            case "toggle":
+                session = MatchSessionBySourceQuery(sessions, sourceQuery, out matchStrategy);
+                if (session is null && currentSession is not null)
+                {
+                    session = currentSession;
+                    matchStrategy = "current-fallback";
+                }
+                break;
+            default:
+                if (debug)
+                {
+                    Console.Error.WriteLine(
+                        $"bridge-debug: control invalid-action action='{NormalizeForSingleLine(actionNormalized)}'"
+                    );
+                }
+                return false;
+        }
 
         if (session is null)
         {
             if (debug)
             {
                 Console.Error.WriteLine(
-                    $"bridge-debug: control no-session source-query='{sourceQuery}' action='{action}'"
+                    $"bridge-debug: control no-session source-query='{sourceQuery}' action='{actionNormalized}' strategy='{matchStrategy}'"
                 );
             }
             return false;
         }
 
-        var ok = action.ToLowerInvariant() switch
+        if (debug)
         {
-            "previous" => session.TrySkipPreviousAsync().AsTask().GetAwaiter().GetResult(),
-            "toggle" => session.TryTogglePlayPauseAsync().AsTask().GetAwaiter().GetResult(),
-            "next" => session.TrySkipNextAsync().AsTask().GetAwaiter().GetResult(),
-            _ => false,
-        };
+            Console.Error.WriteLine(
+                $"bridge-debug: control target source='{NormalizeForSingleLine(session.SourceAppUserModelId ?? string.Empty)}' action='{NormalizeForSingleLine(actionNormalized)}' strategy='{matchStrategy}'"
+            );
+        }
+
+        bool ok;
+        var gsmtcCall = string.Empty;
+        try
+        {
+            ok = actionNormalized switch
+            {
+                "previous" => ExecuteControlCall(session, "TrySkipPreviousAsync", () => session.TrySkipPreviousAsync().AsTask().GetAwaiter().GetResult(), out gsmtcCall),
+                "toggle" => ExecuteControlCall(session, "TryTogglePlayPauseAsync", () => session.TryTogglePlayPauseAsync().AsTask().GetAwaiter().GetResult(), out gsmtcCall),
+                "next" => ExecuteControlCall(session, "TrySkipNextAsync", () => session.TrySkipNextAsync().AsTask().GetAwaiter().GetResult(), out gsmtcCall),
+                _ => false,
+            };
+        }
+        catch (Exception ex)
+        {
+            if (debug)
+            {
+                Console.Error.WriteLine(
+                    $"bridge-debug: control error source='{NormalizeForSingleLine(session.SourceAppUserModelId ?? string.Empty)}' action='{NormalizeForSingleLine(actionNormalized)}' call='{gsmtcCall}' type='{ex.GetType().FullName}' hresult='0x{ex.HResult:X8}' message='{NormalizeForSingleLine(ex.Message)}'"
+                );
+                Console.Error.WriteLine(
+                    $"bridge-debug: control stack='{NormalizeForSingleLine(ex.StackTrace ?? "<no-stack>")}'"
+                );
+            }
+            return false;
+        }
 
         if (debug)
         {
             Console.Error.WriteLine(
-                $"bridge-debug: control source='{session.SourceAppUserModelId ?? string.Empty}' action='{action}' ok={ok}"
+                $"bridge-debug: control result source='{NormalizeForSingleLine(session.SourceAppUserModelId ?? string.Empty)}' action='{NormalizeForSingleLine(actionNormalized)}' call='{gsmtcCall}' ok={ok}"
             );
+            if (!ok)
+            {
+                Console.Error.WriteLine(
+                    $"bridge-debug: control failure-reason source='{NormalizeForSingleLine(session.SourceAppUserModelId ?? string.Empty)}' action='{NormalizeForSingleLine(actionNormalized)}' call='{gsmtcCall}' reason='GSMTC call returned false'"
+                );
+            }
         }
 
         return ok;
     }
 
-    private static string? TryExtractArtworkPath(IRandomAccessStreamReference? thumbnail)
+    private static GlobalSystemMediaTransportControlsSession? MatchSessionBySourceQuery(
+        IReadOnlyList<GlobalSystemMediaTransportControlsSession> sessions,
+        string sourceQuery,
+        out string strategy
+    )
     {
-        if (thumbnail is null) return null;
+        strategy = "none";
+        if (string.IsNullOrWhiteSpace(sourceQuery)) return null;
+
+        var exact = sessions.FirstOrDefault(candidate =>
+            string.Equals(candidate.SourceAppUserModelId ?? string.Empty, sourceQuery, StringComparison.OrdinalIgnoreCase));
+        if (exact is not null)
+        {
+            strategy = "query-exact";
+            return exact;
+        }
+
+        var contains = sessions.FirstOrDefault(candidate =>
+        {
+            var source = candidate.SourceAppUserModelId;
+            return !string.IsNullOrWhiteSpace(source) &&
+                   source.Contains(sourceQuery, StringComparison.OrdinalIgnoreCase);
+        });
+        if (contains is not null)
+        {
+            strategy = "query-contains";
+            return contains;
+        }
+
+        return null;
+    }
+
+    private static bool ExecuteControlCall(
+        GlobalSystemMediaTransportControlsSession session,
+        string callName,
+        Func<bool> invocation,
+        out string executedCall
+    )
+    {
+        executedCall = callName;
+        return invocation();
+    }
+
+    private static string? TryExtractArtworkPath(
+        IRandomAccessStreamReference? thumbnail,
+        bool debug,
+        string source,
+        bool isCurrent
+    )
+    {
+        if (thumbnail is null)
+        {
+            if (debug)
+            {
+                Console.Error.WriteLine(
+                    $"bridge-debug: artwork source='{NormalizeForSingleLine(source)}' current={isCurrent} thumbnail-null=true"
+                );
+            }
+            return null;
+        }
+
+        if (debug)
+        {
+            Console.Error.WriteLine(
+                $"bridge-debug: artwork source='{NormalizeForSingleLine(source)}' current={isCurrent} thumbnail-null=false"
+            );
+        }
 
         try
         {
             using var stream = thumbnail.OpenReadAsync().AsTask().GetAwaiter().GetResult();
+            if (debug)
+            {
+                Console.Error.WriteLine(
+                    $"bridge-debug: artwork source='{NormalizeForSingleLine(source)}' stream-open=true size={stream.Size}"
+                );
+            }
+
             using var netStream = stream.AsStreamForRead();
-            if (!netStream.CanRead) return null;
+            if (!netStream.CanRead)
+            {
+                if (debug)
+                {
+                    Console.Error.WriteLine(
+                        $"bridge-debug: artwork source='{NormalizeForSingleLine(source)}' stream-readable=false"
+                    );
+                }
+                return null;
+            }
 
             using var memory = new MemoryStream();
             netStream.CopyTo(memory);
             var bytes = memory.ToArray();
-            if (bytes.Length == 0) return null;
+            if (debug)
+            {
+                Console.Error.WriteLine(
+                    $"bridge-debug: artwork source='{NormalizeForSingleLine(source)}' copied-bytes={bytes.Length}"
+                );
+            }
+            if (bytes.Length == 0)
+            {
+                if (debug)
+                {
+                    Console.Error.WriteLine(
+                        $"bridge-debug: artwork source='{NormalizeForSingleLine(source)}' copied-bytes=0 (skip save)"
+                    );
+                }
+                return null;
+            }
 
             var hash = Convert.ToHexString(SHA1.HashData(bytes));
+            var signatureHex = GetSignatureHex(bytes, 8);
+            var imageFormat = DetectImageFormat(bytes);
+            var extension = imageFormat.Extension;
+            var formatName = imageFormat.Name;
+
+            if (debug)
+            {
+                Console.Error.WriteLine(
+                    $"bridge-debug: artwork source='{NormalizeForSingleLine(source)}' signature='{signatureHex}' detected-format='{formatName}' extension='{extension}'"
+                );
+            }
+
             var artworkDir = Path.Combine(
                 Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
                 "VisualClient",
@@ -346,18 +538,164 @@ internal static class Program
             );
             Directory.CreateDirectory(artworkDir);
 
-            var path = Path.Combine(artworkDir, hash + ".img");
-            if (!File.Exists(path))
+            var hashedPath = Path.Combine(artworkDir, hash + extension);
+            var hashedTempPath = Path.Combine(artworkDir, $"{hash}.{Guid.NewGuid():N}{extension}.tmp");
+            File.WriteAllBytes(hashedTempPath, bytes);
+            if (debug)
             {
-                File.WriteAllBytes(path, bytes);
+                Console.Error.WriteLine(
+                    $"bridge-debug: artwork source='{NormalizeForSingleLine(source)}' temp-write=true temp-path='{NormalizeForSingleLine(hashedTempPath)}' bytes={bytes.Length}"
+                );
             }
 
-            return path;
+            var savedNew = false;
+            try
+            {
+                if (File.Exists(hashedPath))
+                {
+                    File.Delete(hashedTempPath);
+                }
+                else
+                {
+                    File.Move(hashedTempPath, hashedPath, true);
+                    savedNew = true;
+                }
+            }
+            catch (IOException ioEx) when (File.Exists(hashedPath))
+            {
+                if (File.Exists(hashedTempPath))
+                {
+                    File.Delete(hashedTempPath);
+                }
+                if (debug)
+                {
+                    Console.Error.WriteLine(
+                        $"bridge-debug: artwork source='{NormalizeForSingleLine(source)}' temp-move-race=true path='{NormalizeForSingleLine(hashedPath)}' hresult='0x{ioEx.HResult:X8}' message='{NormalizeForSingleLine(ioEx.Message)}'"
+                    );
+                }
+            }
+
+            if (debug)
+            {
+                Console.Error.WriteLine(
+                    $"bridge-debug: artwork source='{NormalizeForSingleLine(source)}' saved-new={savedNew} path='{NormalizeForSingleLine(hashedPath)}' bytes={bytes.Length}"
+                );
+            }
+
+            string livePath = hashedPath;
+            if (isCurrent)
+            {
+                var bufferDir = Path.Combine(
+                    Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+                    "VisualClient",
+                    "buffer"
+                );
+                Directory.CreateDirectory(bufferDir);
+
+                var bufferTempPath = Path.Combine(bufferDir, "current_cover.tmp.png");
+                var bufferFinalPath = Path.Combine(bufferDir, "current_cover.png");
+
+                try
+                {
+                    File.WriteAllBytes(bufferTempPath, bytes);
+                    File.Move(bufferTempPath, bufferFinalPath, true);
+                    livePath = bufferFinalPath;
+
+                    if (debug)
+                    {
+                        var bufferExists = File.Exists(bufferFinalPath);
+                        var bufferSize = bufferExists ? new FileInfo(bufferFinalPath).Length : -1L;
+                        var bufferModified = bufferExists
+                            ? File.GetLastWriteTimeUtc(bufferFinalPath).ToString("O")
+                            : "<missing>";
+                        Console.Error.WriteLine(
+                            $"bridge-debug: artwork buffer-write=true temp='{NormalizeForSingleLine(bufferTempPath)}' final='{NormalizeForSingleLine(bufferFinalPath)}'"
+                        );
+                        Console.Error.WriteLine(
+                            $"bridge-debug: artwork buffer-final exists={bufferExists} size={bufferSize} modifiedUtc='{NormalizeForSingleLine(bufferModified)}'"
+                        );
+                    }
+                }
+                catch (Exception ex)
+                {
+                    if (debug)
+                    {
+                        Console.Error.WriteLine(
+                            $"bridge-debug: artwork buffer-write-failed type='{ex.GetType().FullName}' hresult='0x{ex.HResult:X8}' message='{NormalizeForSingleLine(ex.Message)}'"
+                        );
+                        Console.Error.WriteLine(
+                            $"bridge-debug: artwork buffer-write-stack='{NormalizeForSingleLine(ex.StackTrace ?? "<no-stack>")}'"
+                        );
+                    }
+                }
+            }
+
+            if (debug)
+            {
+                var finalExists = File.Exists(livePath);
+                var finalSize = finalExists ? new FileInfo(livePath).Length : -1L;
+                var finalModified = finalExists
+                    ? File.GetLastWriteTimeUtc(livePath).ToString("O")
+                    : "<missing>";
+                Console.Error.WriteLine(
+                    $"bridge-debug: artwork source='{NormalizeForSingleLine(source)}' final-artwork-file exists={finalExists} size={finalSize} modifiedUtc='{NormalizeForSingleLine(finalModified)}'"
+                );
+                Console.Error.WriteLine(
+                    $"bridge-debug: artwork source='{NormalizeForSingleLine(source)}' final-artwork-path='{NormalizeForSingleLine(livePath)}'"
+                );
+            }
+            return livePath;
         }
-        catch
+        catch (Exception ex)
         {
+            if (debug)
+            {
+                Console.Error.WriteLine(
+                    $"bridge-debug: artwork error source='{NormalizeForSingleLine(source)}' type='{ex.GetType().FullName}' hresult='0x{ex.HResult:X8}' message='{NormalizeForSingleLine(ex.Message)}'"
+                );
+                Console.Error.WriteLine(
+                    $"bridge-debug: artwork stack='{NormalizeForSingleLine(ex.StackTrace ?? "<no-stack>")}'"
+                );
+            }
             return null;
         }
+    }
+
+    private static (string Name, string Extension) DetectImageFormat(byte[] bytes)
+    {
+        if (bytes.Length >= 8 &&
+            bytes[0] == 0x89 &&
+            bytes[1] == 0x50 &&
+            bytes[2] == 0x4E &&
+            bytes[3] == 0x47 &&
+            bytes[4] == 0x0D &&
+            bytes[5] == 0x0A &&
+            bytes[6] == 0x1A &&
+            bytes[7] == 0x0A)
+        {
+            return ("png", ".png");
+        }
+
+        if (bytes.Length >= 3 &&
+            bytes[0] == 0xFF &&
+            bytes[1] == 0xD8 &&
+            bytes[2] == 0xFF)
+        {
+            return ("jpeg", ".jpg");
+        }
+
+        // Keep unknown payload decodable by content readers, but avoid .img.
+        return ("unknown", ".png");
+    }
+
+    private static string GetSignatureHex(byte[] bytes, int count)
+    {
+        if (bytes.Length == 0 || count <= 0) return "<empty>";
+        var length = Math.Min(bytes.Length, count);
+        return BitConverter
+            .ToString(bytes, 0, length)
+            .Replace("-", " ")
+            .ToUpperInvariant();
     }
 
     private sealed class StaExecutionResult
