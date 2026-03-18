@@ -28,60 +28,84 @@ import kotlin.math.sqrt
 class VisualsMenuScreen : BaseOwoScreen<FlowLayout>() {
 
     private object Theme {
-        const val frameGap = 8
+        const val frameGap = 6
 
-        const val panelFill = 0xFF0C1019.toInt()
-        const val panelBorder = 0xFF2E374B.toInt()
-        const val panelRadius = 30
-        const val panelPadding = 16
+        const val panelFill = 0xFF0A0F19.toInt()
+        const val panelBorder = 0xFF2A3650.toInt()
+        const val panelRadius = 28
+        const val panelPadding = 14
         const val panelGap = 8
-        const val panelTopGlowStart = 0xFF1A2135.toInt()
-        const val panelTopGlowMid = 0xFF141B2D.toInt()
-        const val panelTopGlowEnd = 0xFF101724.toInt()
-        const val panelBottomShade = 0xFF0A0D16.toInt()
+        const val panelTopGlowStart = 0xAD253154.toInt()
+        const val panelTopGlowMid = 0x751C2843
+        const val panelTopGlowEnd = 0x00131B2A
+        const val panelBottomShade = 0xD0080C15.toInt()
 
-        const val topBarHeight = 36
-        const val topBarGap = 8
+        const val headerFill = 0xFF0E1627.toInt()
+        const val headerBorder = 0xFF354566.toInt()
+        const val headerRadius = 18
+        const val headerHeight = 44
+        const val headerGap = 8
 
-        const val searchFill = 0xFF111827.toInt()
-        const val searchBorder = 0xFF323D56.toInt()
-        const val searchRadius = 20
-        const val searchHeight = 32
+        const val topBarGap = 10
+        const val tabHeight = 28
+
+        const val searchFill = 0xFF121B2D.toInt()
+        const val searchBorder = 0xFF3B4D71.toInt()
+        const val searchRadius = 14
+        const val searchHeight = 30
+
+        const val moduleBodyFill = 0xFF0C1424.toInt()
+        const val moduleBodyBorder = 0xFF2A3753.toInt()
+        const val moduleBodyRadius = 18
+        const val moduleBodyPadding = 12
+        const val moduleRowsSideInset = 4
+        const val moduleViewportRightInset = 7
 
         const val moduleRowGap = 10
         const val moduleColumnGap = 10
-        const val moduleCardHeight = 46
+        const val moduleCardHeight = 48
+        const val moduleRowHeight = moduleCardHeight + 10
+        const val moduleListTopInset = 6
+        const val moduleListBottomInset = 16
 
-        const val cardFill = 0xFF111827.toInt()
-        const val cardBorder = 0xFF2B3447.toInt()
-        const val cardHoverFill = 0xFF162033.toInt()
-        const val cardHoverBorder = 0xFF43527A.toInt()
-        const val cardRadius = 22
+        const val cardFill = 0xFF111A2C.toInt()
+        const val cardBorder = 0xFF2F3D5B.toInt()
+        const val cardHoverFill = 0xFF172338.toInt()
+        const val cardHoverBorder = 0xFF50618D.toInt()
+        const val cardEnabledFill = 0xFF152037.toInt()
+        const val cardEnabledBorder = 0xFF6077AC.toInt()
+        const val cardExpandedFill = 0xFF1A2740.toInt()
+        const val cardExpandedBorder = 0xFF8774DE.toInt()
+        const val cardRadius = 16
 
-        const val settingsFill = 0xFF0F1625.toInt()
-        const val settingsBorder = 0xFF33415F.toInt()
-        const val settingsRadius = 18
+        const val settingsFill = 0xFF10182A.toInt()
+        const val settingsBorder = 0xFF3C4D70.toInt()
+        const val settingsRadius = 16
         const val settingsHeight = 92
 
-        const val iconSlotFill = 0x7F12172A
-        const val iconSlotBorder = 0x6A323A57
-        const val iconSlotRadius = 12
+        const val iconSlotFill = 0x8F141D33.toInt()
+        const val iconSlotBorder = 0x7A3A4D73
+        const val iconSlotRadius = 9
 
-        const val toggleWidth = 34
-        const val toggleHeight = 18
+        const val toggleWidth = 38
+        const val toggleHeight = 20
+        const val toggleRightInset = 12
 
-        const val dockFill = 0xFF0E1423.toInt()
-        const val dockBorder = 0xFF313D5A.toInt()
-        const val dockRadius = 24
-        const val dockHeight = 52
-        const val dockGap = 8
+        const val dockFill = 0xFF10182A.toInt()
+        const val dockBorder = 0xFF3A4B6F.toInt()
+        const val dockRadius = 18
+        const val dockHeight = 48
+        const val dockGap = 6
+        const val dockWidthRatio = 0.68f
 
         const val accent = 0xFF7D5BFF.toInt()
         const val accentStrong = 0xFF8A71FF.toInt()
+        const val accentSoft = 0x8F7863D8.toInt()
 
         const val textPrimary = 0xFFF4F6FF.toInt()
-        const val textSecondary = 0xFF8F97B5.toInt()
-        const val textMuted = 0xFF707895.toInt()
+        const val textSecondary = 0xFFA2ACCA.toInt()
+        const val textMuted = 0xFF7782A2.toInt()
+        const val textDim = 0xFF69748F.toInt()
 
         const val scrollbarColor = 0x66505A7A
         const val scrollbarThickness = 3
@@ -117,6 +141,7 @@ class VisualsMenuScreen : BaseOwoScreen<FlowLayout>() {
     private var openedModuleSettingsId: String? = null
 
     private val toggleProgressById: MutableMap<String, Float> = mutableMapOf()
+    private val cardHoverProgressById: MutableMap<String, Float> = mutableMapOf()
 
     private lateinit var tabStrip: FlowLayout
     private lateinit var dockStrip: FlowLayout
@@ -189,8 +214,8 @@ class VisualsMenuScreen : BaseOwoScreen<FlowLayout>() {
             Theme.panelRadius,
         )
 
-        val glowInset = (Theme.panelRadius * 0.55f).toInt().coerceAtLeast(10)
-        val glowHeight = (component.height() * 0.26f).toInt().coerceAtLeast(38)
+        val glowInset = (Theme.panelRadius * 0.48f).toInt().coerceAtLeast(10)
+        val glowHeight = (component.height() * 0.24f).toInt().coerceAtLeast(32)
         context.drawGradientRect(
             component.x() + glowInset,
             component.y() + 2,
@@ -200,6 +225,18 @@ class VisualsMenuScreen : BaseOwoScreen<FlowLayout>() {
             Theme.panelTopGlowMid,
             Theme.panelTopGlowEnd,
             Theme.panelTopGlowEnd,
+        )
+
+        val panelHighlightInset = (Theme.panelRadius * 0.60f).toInt().coerceAtLeast(14)
+        context.drawGradientRect(
+            component.x() + panelHighlightInset,
+            component.y() + 2,
+            (component.width() - (panelHighlightInset * 2)).coerceAtLeast(2),
+            12,
+            0x16F8FAFF,
+            0x08D9E1FB,
+            0x00000000,
+            0x00000000,
         )
 
         context.drawGradientRect(
@@ -218,6 +255,18 @@ class VisualsMenuScreen : BaseOwoScreen<FlowLayout>() {
         fill = Theme.searchFill,
         border = Theme.searchBorder,
         radius = Theme.searchRadius,
+    )
+
+    private val headerSurface = roundedSurface(
+        fill = Theme.headerFill,
+        border = Theme.headerBorder,
+        radius = Theme.headerRadius,
+    )
+
+    private val moduleBodySurface = roundedSurface(
+        fill = Theme.moduleBodyFill,
+        border = Theme.moduleBodyBorder,
+        radius = Theme.moduleBodyRadius,
     )
 
     private val cardSurface = roundedSurface(
@@ -279,27 +328,33 @@ class VisualsMenuScreen : BaseOwoScreen<FlowLayout>() {
         val width = Minecraft.getInstance().window.guiScaledWidth
         val height = Minecraft.getInstance().window.guiScaledHeight
 
-        val maxPanelWidth = (width - 96).coerceAtLeast(460)
-        val targetPanelWidth = (width * 0.58f).toInt()
-        panelWidth = targetPanelWidth.coerceIn(min(560, maxPanelWidth), min(840, maxPanelWidth))
+        val maxPanelWidth = (width - 110).coerceAtLeast(460)
+        val targetPanelWidth = (width * 0.56f).toInt()
+        panelWidth = targetPanelWidth.coerceIn(min(560, maxPanelWidth), min(810, maxPanelWidth))
 
-        val maxPanelHeight = (height - 128).coerceAtLeast(300)
-        val targetPanelHeight = (height * 0.62f).toInt()
-        panelHeight = targetPanelHeight.coerceIn(min(330, maxPanelHeight), min(500, maxPanelHeight))
+        val maxPanelHeight = (height - 138).coerceAtLeast(300)
+        val targetPanelHeight = (height * 0.60f).toInt()
+        panelHeight = targetPanelHeight.coerceIn(min(330, maxPanelHeight), min(490, maxPanelHeight))
 
-        searchWidth = (panelWidth * 0.34f).toInt().coerceIn(220, 320)
+        searchWidth = (panelWidth * 0.33f).toInt().coerceIn(220, 310)
 
-        val contentWidth = panelWidth - (Theme.panelPadding * 2)
-        moduleCardWidth = ((contentWidth - Theme.moduleColumnGap) / 2).coerceAtLeast(180)
+        val moduleViewportWidth = (
+            panelWidth
+                - (Theme.panelPadding * 2)
+                - (Theme.moduleBodyPadding * 2)
+                - (Theme.moduleRowsSideInset * 2)
+                - Theme.moduleViewportRightInset
+            ).coerceAtLeast(360)
+        moduleCardWidth = ((moduleViewportWidth - Theme.moduleColumnGap) / 2).coerceAtLeast(180)
     }
 
     private fun buildMainPanel(): FlowLayout {
         val panel = Containers.verticalFlow(Sizing.fixed(panelWidth), Sizing.fixed(panelHeight))
         panel.surface(panelSurface)
         panel.padding(Insets.of(Theme.panelPadding))
-        panel.gap(0)
+        panel.gap(Theme.panelGap)
 
-        val content = Containers.verticalFlow(Sizing.fill(100), Sizing.fill(100))
+        val content = Containers.verticalFlow(Sizing.fill(100), Sizing.expand(100))
         content.gap(Theme.panelGap)
 
         buildTopBar(content)
@@ -311,36 +366,33 @@ class VisualsMenuScreen : BaseOwoScreen<FlowLayout>() {
     }
 
     private fun buildTopBar(panel: FlowLayout) {
-        val topShell = Containers.verticalFlow(Sizing.fill(100), Sizing.content())
-        topShell.gap(3)
+        val topShell = Containers.verticalFlow(Sizing.fill(100), Sizing.fixed(Theme.headerHeight))
+        topShell.surface(headerSurface)
+        topShell.padding(Insets.of(6, 7, 10, 10))
+        topShell.gap(Theme.headerGap)
+        topShell.verticalAlignment(VerticalAlignment.CENTER)
 
-        val topBar = Containers.horizontalFlow(Sizing.fill(100), Sizing.fixed(Theme.topBarHeight))
+        val topBar = Containers.horizontalFlow(Sizing.fill(100), Sizing.fill(100))
         topBar.verticalAlignment(VerticalAlignment.CENTER)
         topBar.gap(Theme.topBarGap)
 
-        tabStrip = Containers.horizontalFlow(Sizing.expand(100), Sizing.fixed(26))
+        tabStrip = Containers.horizontalFlow(Sizing.expand(100), Sizing.fixed(Theme.tabHeight))
         tabStrip.verticalAlignment(VerticalAlignment.CENTER)
-        tabStrip.gap(8)
+        tabStrip.gap(6)
         topBar.child(tabStrip)
 
         topBar.child(buildSearchBar())
 
         topShell.child(topBar)
-        topShell.child(
-            Components.box(Sizing.fill(100), Sizing.fixed(1))
-                .fill(true)
-                .color(Color.ofArgb(0xFF20273A.toInt()))
-        )
-
         panel.child(topShell)
     }
 
     private fun buildSearchBar(): FlowLayout {
         val searchBar = Containers.horizontalFlow(Sizing.fixed(searchWidth), Sizing.fixed(Theme.searchHeight))
         searchBar.surface(searchSurface)
-        searchBar.padding(Insets.of(6, 7, 13, 13))
+        searchBar.padding(Insets.of(4, 6, 11, 11))
         searchBar.verticalAlignment(VerticalAlignment.CENTER)
-        searchBar.gap(7)
+        searchBar.gap(6)
 
         searchBar.child(
             Components.label(vText("?"))
@@ -376,7 +428,7 @@ class VisualsMenuScreen : BaseOwoScreen<FlowLayout>() {
     private fun buildModuleSection(panel: FlowLayout) {
         moduleRows = Containers.verticalFlow(Sizing.fill(100), Sizing.content())
         moduleRows.gap(Theme.moduleRowGap)
-        moduleRows.padding(Insets.of(2))
+        moduleRows.padding(Insets.of(Theme.moduleListTopInset, 4, Theme.moduleRowsSideInset, Theme.moduleRowsSideInset))
 
         moduleScroll = Containers.verticalScroll(Sizing.fill(100), Sizing.expand(100), moduleRows)
             .scrollbar(ScrollContainer.Scrollbar.flat(Color.ofArgb(Theme.scrollbarColor)))
@@ -384,6 +436,8 @@ class VisualsMenuScreen : BaseOwoScreen<FlowLayout>() {
             .scrollStep(Theme.scrollStep)
 
         val moduleBody = Containers.verticalFlow(Sizing.fill(100), Sizing.expand(100))
+        moduleBody.surface(moduleBodySurface)
+        moduleBody.padding(Insets.of(9, 14, Theme.moduleBodyPadding, Theme.moduleBodyPadding))
         moduleBody.child(moduleScroll)
 
         panel.child(moduleBody)
@@ -393,9 +447,11 @@ class VisualsMenuScreen : BaseOwoScreen<FlowLayout>() {
         val dockHolder = Containers.horizontalFlow(Sizing.fixed(panelWidth), Sizing.content())
         dockHolder.horizontalAlignment(HorizontalAlignment.CENTER)
 
-        dockStrip = Containers.horizontalFlow(Sizing.content(), Sizing.fixed(Theme.dockHeight))
+        val dockWidth = (panelWidth * Theme.dockWidthRatio).toInt().coerceAtLeast(260)
+        dockStrip = Containers.horizontalFlow(Sizing.fixed(dockWidth), Sizing.fixed(Theme.dockHeight))
         dockStrip.surface(dockSurface)
-        dockStrip.padding(Insets.of(8, 8, 10, 10))
+        dockStrip.padding(Insets.of(6, 6, 10, 10))
+        dockStrip.horizontalAlignment(HorizontalAlignment.CENTER)
         dockStrip.verticalAlignment(VerticalAlignment.CENTER)
         dockStrip.gap(Theme.dockGap)
 
@@ -449,11 +505,15 @@ class VisualsMenuScreen : BaseOwoScreen<FlowLayout>() {
 
         if (entries.isEmpty()) {
             moduleRows.child(buildEmptyCard())
+            moduleRows.child(
+                Components.box(Sizing.fill(100), Sizing.fixed(Theme.moduleListBottomInset))
+                    .fill(false)
+            )
             return
         }
 
         entries.chunked(2).forEach { pair ->
-            val row = Containers.horizontalFlow(Sizing.fill(100), Sizing.fixed(Theme.moduleCardHeight))
+            val row = Containers.horizontalFlow(Sizing.fill(100), Sizing.fixed(Theme.moduleRowHeight))
             row.verticalAlignment(VerticalAlignment.CENTER)
             row.gap(Theme.moduleColumnGap)
 
@@ -475,12 +535,17 @@ class VisualsMenuScreen : BaseOwoScreen<FlowLayout>() {
                 moduleRows.child(buildModuleSettingsPanel(opened))
             }
         }
+
+        moduleRows.child(
+            Components.box(Sizing.fill(100), Sizing.fixed(Theme.moduleListBottomInset))
+                .fill(false)
+        )
     }
 
     private fun buildEmptyCard(): FlowLayout {
         val emptyCard = Containers.horizontalFlow(Sizing.fill(100), Sizing.fixed(Theme.moduleCardHeight))
         emptyCard.surface(cardSurface)
-        emptyCard.padding(Insets.of(9, 10, 14, 14))
+        emptyCard.padding(Insets.of(10, 11, 14, 14))
         emptyCard.verticalAlignment(VerticalAlignment.CENTER)
 
         emptyCard.child(
@@ -497,13 +562,13 @@ class VisualsMenuScreen : BaseOwoScreen<FlowLayout>() {
     private fun buildModuleSettingsPanel(module: ModuleEntry): FlowLayout {
         val panel = Containers.verticalFlow(Sizing.fill(100), Sizing.fixed(Theme.settingsHeight))
         panel.surface(settingsSurface)
-        panel.padding(Insets.of(9, 9, 12, 12))
-        panel.gap(7)
+        panel.padding(Insets.of(8, 10, 12, 12))
+        panel.gap(8)
 
         panel.child(
             Components.label(vText("Settings • ${module.title}"))
                 .configure<LabelComponent> { label ->
-                    label.color(Color.ofRgb(0xA9B3D4))
+                    label.color(Color.ofArgb(Theme.textSecondary))
                     label.shadow(false)
                 }
         )
@@ -517,14 +582,14 @@ class VisualsMenuScreen : BaseOwoScreen<FlowLayout>() {
     private fun buildInlineSettingRow(module: ModuleEntry, title: String, keySuffix: String): FlowLayout {
         val stateKey = "${module.id}:$keySuffix"
 
-        val row = Containers.horizontalFlow(Sizing.fill(100), Sizing.fixed(22))
+        val row = Containers.horizontalFlow(Sizing.fill(100), Sizing.fixed(24))
         row.verticalAlignment(VerticalAlignment.CENTER)
         row.gap(8)
 
         row.child(
             Components.label(vText(title))
                 .configure<LabelComponent> { label ->
-                    label.color(Color.ofRgb(0x8D97B8))
+                    label.color(Color.ofArgb(Theme.textMuted))
                     label.shadow(false)
                     label.sizing(Sizing.expand(100), Sizing.content())
                 }
@@ -558,21 +623,35 @@ class VisualsMenuScreen : BaseOwoScreen<FlowLayout>() {
             val enabled = ModuleStateStore.isEnabled(module.id)
             val expanded = openedModuleSettingsId == module.id
 
-            val border = when {
-                expanded -> 0xFF876DFF.toInt()
-                hovered -> Theme.cardHoverBorder
-                enabled -> 0xFF4E5B86.toInt()
-                else -> Theme.cardBorder
-            }
-            val fill = when {
-                hovered -> Theme.cardHoverFill
-                enabled -> 0xFF12192B.toInt()
-                else -> Theme.cardFill
-            }
+            val targetHover = if (hovered || expanded) 1f else 0f
+            val currentHover = cardHoverProgressById[module.id] ?: 0f
+            val nextHover = currentHover + (targetHover - currentHover) * 0.28f
+            cardHoverProgressById[module.id] = if (abs(nextHover - targetHover) < 0.001f) targetHover else nextHover
+
+            val baseFill = if (enabled) Theme.cardEnabledFill else Theme.cardFill
+            val baseBorder = if (enabled) Theme.cardEnabledBorder else Theme.cardBorder
+            val hoverFill = if (expanded) Theme.cardExpandedFill else Theme.cardHoverFill
+            val hoverBorder = if (expanded) Theme.cardExpandedBorder else Theme.cardHoverBorder
+            val fill = blendColor(baseFill, hoverFill, nextHover)
+            val border = blendColor(baseBorder, hoverBorder, nextHover)
 
             drawRoundedPanel(context, this.x, this.y, this.width, this.height, fill, border, Theme.cardRadius)
+            val cardHighlightInset = (Theme.cardRadius * 0.55f).toInt().coerceAtLeast(8)
+            val highlightStrength = ((if (enabled) 0.16f else 0.04f) + (nextHover * 0.24f)).coerceIn(0f, 0.38f)
+            val highlightStart = blendColor(0x00000000, 0x24F4F7FF, highlightStrength)
+            val highlightMid = blendColor(0x00000000, 0x12D6DDF8, highlightStrength)
+            context.drawGradientRect(
+                this.x + cardHighlightInset,
+                this.y + 2,
+                (this.width - (cardHighlightInset * 2)).coerceAtLeast(2),
+                5,
+                highlightStart,
+                highlightMid,
+                0x00000000,
+                0x00000000,
+            )
 
-            val slotSize = 18
+            val slotSize = 22
             val slotX = this.x + 10
             val slotY = this.y + (this.height - slotSize) / 2
             drawRoundedPanel(context, slotX, slotY, slotSize, slotSize, Theme.iconSlotFill, Theme.iconSlotBorder, Theme.iconSlotRadius)
@@ -584,41 +663,52 @@ class VisualsMenuScreen : BaseOwoScreen<FlowLayout>() {
                 vText(module.iconGlyph),
                 slotX + (slotSize - iconWidth) / 2,
                 slotY + (slotSize - font.lineHeight) / 2,
-                0xFF7E86A4.toInt(),
+                if (enabled) 0xFFBAC4E8.toInt() else 0xFF7E86A4.toInt(),
                 false,
             )
 
-            val textColor = if (enabled) 0xFFA2ACCA.toInt() else 0xFF8E96B4.toInt()
-            val titleX = slotX + slotSize + 8
-            val toggleX = this.x + this.width - Theme.toggleWidth - 10
-            val titleMaxWidth = (toggleX - 8 - titleX).coerceAtLeast(24)
+            val textColor = if (enabled) Theme.textPrimary else Theme.textSecondary
+            val titleX = slotX + slotSize + 9
+            val toggleX = this.x + this.width - Theme.toggleWidth - Theme.toggleRightInset
+            val titleMaxWidth = (toggleX - 10 - titleX).coerceAtLeast(24)
             val fittedTitle = fitStyledText(font, module.title, titleMaxWidth)
             context.drawString(
                 font,
                 fittedTitle,
                 titleX,
-                this.y + (this.height - font.lineHeight) / 2,
+                this.y + (this.height - font.lineHeight) / 2 - 1,
                 textColor,
                 false,
             )
 
             val toggleY = this.y + (this.height - Theme.toggleHeight) / 2
-            val trackBorder = if (enabled) 0xFF8D72FF.toInt() else 0x7A3A425A
-            val trackFill = if (enabled) 0xD4664BFF.toInt() else 0x6E1E2639
+            val trackBorder = if (enabled) 0xFF8B73F8.toInt() else 0x7A394866
+            val trackFill = if (enabled) 0xC85F4FBE.toInt() else 0xAA1B2438.toInt()
             drawRoundedPanel(context, toggleX, toggleY, Theme.toggleWidth, Theme.toggleHeight, trackFill, trackBorder, Theme.toggleHeight / 2)
 
             val target = if (enabled) 1f else 0f
             val current = toggleProgressById[module.id] ?: target
-            val next = current + (target - current) * 0.35f
+            val next = current + (target - current) * 0.26f
             val settled = if (abs(target - next) < 0.002f) target else next
             toggleProgressById[module.id] = settled
 
-            val knobRadius = ((Theme.toggleHeight - 6) / 2).coerceAtLeast(3)
+            val knobRadius = ((Theme.toggleHeight - 6) / 2).coerceAtLeast(4)
             val minCenterX = toggleX + knobRadius + 3
             val maxCenterX = toggleX + Theme.toggleWidth - knobRadius - 3
             val knobCenterX = (minCenterX + (maxCenterX - minCenterX) * settled).toInt()
             val knobCenterY = toggleY + Theme.toggleHeight / 2
 
+            if (enabled) {
+                fillRoundedRect(
+                    context,
+                    knobCenterX - knobRadius - 1,
+                    knobCenterY - knobRadius - 1,
+                    knobRadius * 2 + 2,
+                    knobRadius * 2 + 2,
+                    knobRadius + 1,
+                    0x6A927DFF,
+                )
+            }
             drawRoundedPanel(
                 context,
                 knobCenterX - knobRadius,
@@ -626,7 +716,7 @@ class VisualsMenuScreen : BaseOwoScreen<FlowLayout>() {
                 knobRadius * 2,
                 knobRadius * 2,
                 0xFFF1F4FF.toInt(),
-                0xA0C8D0F0.toInt(),
+                0x90CBD3F8.toInt(),
                 knobRadius,
             )
         }
@@ -656,31 +746,55 @@ class VisualsMenuScreen : BaseOwoScreen<FlowLayout>() {
     ) : BaseComponent() {
 
         init {
-            this.sizing(Sizing.content(), Sizing.fixed(22))
+            this.sizing(Sizing.content(), Sizing.fixed(Theme.tabHeight))
             this.cursorStyle(CursorStyle.HAND)
         }
 
-        override fun determineHorizontalContentSize(sizing: Sizing): Int = Minecraft.getInstance().font.width(vText(text)) + 10
+        override fun determineHorizontalContentSize(sizing: Sizing): Int = Minecraft.getInstance().font.width(vText(text)) + 16
 
-        override fun determineVerticalContentSize(sizing: Sizing): Int = 22
+        override fun determineVerticalContentSize(sizing: Sizing): Int = Theme.tabHeight
 
         override fun draw(context: OwoUIGraphics, mouseX: Int, mouseY: Int, partialTicks: Float, delta: Float) {
             val hovered = mouseX in this.x until (this.x + this.width) && mouseY in this.y until (this.y + this.height)
+
+            val backgroundFill = when {
+                active -> 0x4D2B3C66
+                hovered -> 0x2A1A253D
+                else -> 0x00000000
+            }
+            val backgroundBorder = when {
+                active -> 0xAA6479B5.toInt()
+                hovered -> 0x7A3E4B70
+                else -> 0x002A3247
+            }
+            if (active || hovered) {
+                drawRoundedPanel(
+                    context,
+                    this.x,
+                    this.y,
+                    this.width,
+                    this.height,
+                    backgroundFill,
+                    backgroundBorder,
+                    10,
+                )
+            }
+
             val color = when {
                 active -> Theme.textPrimary
                 hovered -> Theme.textSecondary
-                else -> Theme.textMuted
+                else -> Theme.textDim
             }
 
             val font = Minecraft.getInstance().font
             val textY = this.y + ((this.height - font.lineHeight) / 2)
-            context.drawString(font, vText(text), this.x + 2, textY, color, false)
+            context.drawString(font, vText(text), this.x + 7, textY, color, false)
 
             if (active) {
                 context.drawGradientRect(
-                    this.x + 2,
+                    this.x + 6,
                     this.y + this.height - 2,
-                    (this.width - 4).coerceAtLeast(2),
+                    (this.width - 12).coerceAtLeast(2),
                     1,
                     Theme.accent,
                     Theme.accent,
@@ -706,38 +820,38 @@ class VisualsMenuScreen : BaseOwoScreen<FlowLayout>() {
     ) : BaseComponent() {
 
         init {
-            this.sizing(Sizing.fixed(36), Sizing.fixed(36))
+            this.sizing(Sizing.fixed(44), Sizing.fixed(34))
             this.cursorStyle(CursorStyle.HAND)
         }
 
-        override fun determineHorizontalContentSize(sizing: Sizing): Int = 36
+        override fun determineHorizontalContentSize(sizing: Sizing): Int = 44
 
-        override fun determineVerticalContentSize(sizing: Sizing): Int = 36
+        override fun determineVerticalContentSize(sizing: Sizing): Int = 34
 
         override fun draw(context: OwoUIGraphics, mouseX: Int, mouseY: Int, partialTicks: Float, delta: Float) {
             val hovered = mouseX in this.x until (this.x + this.width) && mouseY in this.y until (this.y + this.height)
 
             val border = when {
                 active -> Theme.accentStrong
-                hovered -> 0x7A49506D
-                else -> 0x55343E59
+                hovered -> 0x7A4B5E89
+                else -> 0x4B35435F
             }
             val fill = when {
-                active -> 0xFF6D4CFF.toInt()
-                hovered -> 0x7A1A2138
-                else -> 0x6010172A
+                active -> 0xFF5D4AC6.toInt()
+                hovered -> 0x7A1C2942
+                else -> 0x4D131B2E
             }
 
-            drawRoundedPanel(context, this.x, this.y, this.width, this.height, fill, border, 14)
+            drawRoundedPanel(context, this.x, this.y, this.width, this.height, fill, border, 12)
 
             val font = Minecraft.getInstance().font
-            val color = if (active) 0xFFF9F6FF.toInt() else 0xFF838CAC.toInt()
+            val color = if (active) 0xFFF9F6FF.toInt() else 0xFF95A1C4.toInt()
             val textWidth = font.width(vText(iconText))
             context.drawString(
                 font,
                 vText(iconText),
                 this.x + (this.width - textWidth) / 2,
-                this.y + (this.height - font.lineHeight) / 2,
+                this.y + (this.height - font.lineHeight) / 2 - 1,
                 color,
                 false,
             )
@@ -769,14 +883,25 @@ class VisualsMenuScreen : BaseOwoScreen<FlowLayout>() {
         override fun determineVerticalContentSize(sizing: Sizing): Int = 16
 
         override fun draw(context: OwoUIGraphics, mouseX: Int, mouseY: Int, partialTicks: Float, delta: Float) {
-            val trackBorder = if (enabled) 0xFF8D72FF.toInt() else 0x7A3A425A
-            val trackFill = if (enabled) 0xD4664BFF.toInt() else 0x6E1E2639
+            val trackBorder = if (enabled) 0xFF8E73FD.toInt() else 0x7A3D4A68
+            val trackFill = if (enabled) 0xC45747B6.toInt() else 0x7A1A2436
             drawRoundedPanel(context, this.x, this.y, this.width, this.height, trackFill, trackBorder, this.height / 2)
 
             val knobRadius = ((this.height - 6) / 2).coerceAtLeast(3)
             val knobCenterX = if (enabled) this.x + this.width - knobRadius - 3 else this.x + knobRadius + 3
             val knobCenterY = this.y + this.height / 2
 
+            if (enabled) {
+                fillRoundedRect(
+                    context,
+                    knobCenterX - knobRadius - 1,
+                    knobCenterY - knobRadius - 1,
+                    knobRadius * 2 + 2,
+                    knobRadius * 2 + 2,
+                    knobRadius + 1,
+                    0x5A8C79FF,
+                )
+            }
             drawRoundedPanel(
                 context,
                 knobCenterX - knobRadius,
@@ -784,7 +909,7 @@ class VisualsMenuScreen : BaseOwoScreen<FlowLayout>() {
                 knobRadius * 2,
                 knobRadius * 2,
                 0xFFF1F4FF.toInt(),
-                0xA0C8D0F0.toInt(),
+                0x9AC9D5F3.toInt(),
                 knobRadius,
             )
         }
@@ -812,6 +937,27 @@ private fun fitStyledText(font: Font, value: String, maxWidth: Int): MutableComp
     }
 
     return if (trimmed.isEmpty()) vText("...") else vText("$trimmed...")
+}
+
+private fun blendColor(from: Int, to: Int, t: Float): Int {
+    val clamped = t.coerceIn(0f, 1f)
+
+    val fromA = (from ushr 24) and 0xFF
+    val fromR = (from ushr 16) and 0xFF
+    val fromG = (from ushr 8) and 0xFF
+    val fromB = from and 0xFF
+
+    val toA = (to ushr 24) and 0xFF
+    val toR = (to ushr 16) and 0xFF
+    val toG = (to ushr 8) and 0xFF
+    val toB = to and 0xFF
+
+    val outA = (fromA + ((toA - fromA) * clamped)).toInt().coerceIn(0, 255)
+    val outR = (fromR + ((toR - fromR) * clamped)).toInt().coerceIn(0, 255)
+    val outG = (fromG + ((toG - fromG) * clamped)).toInt().coerceIn(0, 255)
+    val outB = (fromB + ((toB - fromB) * clamped)).toInt().coerceIn(0, 255)
+
+    return (outA shl 24) or (outR shl 16) or (outG shl 8) or outB
 }
 
 private fun roundedSurface(fill: Int, border: Int, radius: Int): Surface {

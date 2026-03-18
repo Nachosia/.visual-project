@@ -21,6 +21,9 @@ object VisualClientMod : ClientModInitializer {
     )
 
     override fun onInitializeClient() {
+        VisualFileSystem.initialize(LOGGER)
+        ModuleStateStore.initialize()
+
         openVisualsMenuKey = KeyBindingHelper.registerKeyBinding(
             KeyMapping(
                 "Open Visuals Menu",
