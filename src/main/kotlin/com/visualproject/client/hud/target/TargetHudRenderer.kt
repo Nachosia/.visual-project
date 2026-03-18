@@ -8,9 +8,9 @@ import net.minecraft.client.gui.GuiGraphics
 import net.minecraft.client.gui.screens.ChatScreen
 import net.minecraft.client.gui.screens.Screen
 import net.minecraft.client.input.MouseButtonEvent
+import net.minecraft.client.renderer.entity.state.AvatarRenderState
 import net.minecraft.client.renderer.entity.state.LivingEntityRenderState
 import net.minecraft.world.entity.EquipmentSlot
-import net.minecraft.world.entity.Pose
 import net.minecraft.world.entity.player.Player
 import net.minecraft.world.item.ItemStack
 import org.joml.Quaternionf
@@ -272,11 +272,12 @@ internal class TargetHudRenderer {
         val currentHp = target.health.coerceAtLeast(0f)
         val maxHp = target.maxHealth.coerceAtLeast(1f)
         val hpText = "HP ${"%.1f".format(currentHp)} / ${"%.1f".format(maxHp)}"
+        val hpTextY = bounds.y + 9
         context.drawString(
             font,
             vText(hpText),
             rightX,
-            bounds.y + 9,
+            hpTextY,
             Style.textPrimary,
             false,
         )
@@ -312,46 +313,47 @@ internal class TargetHudRenderer {
 
         val nameY = bounds.y + bounds.height - padding - font.lineHeight
 
-        // Explicit equipment layout model (2 columns x 3 rows) in the area
-        // between HP bar and nickname baseline.
+        // Two independent groups:
+        // 1) held items row directly under HP text
+        // 2) armor 2x2 grid under HP bar on the right side
         val slotSize = TargetHudLayout.itemSlotSize
         val slotGapX = 8
-        val slotGapY = 2
-        val slotBlockWidth = (slotSize * 2) + slotGapX
-        val slotBlockHeight = (slotSize * 3) + (slotGapY * 2)
+        val slotGapY = 3
+        val rowWidth = (slotSize * 2) + slotGapX
+        val rightContentRight = bounds.x + bounds.width - padding
 
-        val slotAreaLeft = rightX
-        val slotAreaRight = bounds.x + bounds.width - padding
-        val slotAreaTop = barY + barHeight + 3
-        val slotAreaBottom = nameY - 2
+        // Group B: armor grid (under HP bar, anchored to right side)
+        val armorBlockHeight = (slotSize * 2) + slotGapY
+        val armorLeftX = (rightContentRight - rowWidth - 2).coerceAtLeast(rightX)
+        val armorRightX = armorLeftX + slotSize + slotGapX
+        val armorTopPreferredY = barY + barHeight + 2
+        val armorTopMaxY = nameY - armorBlockHeight - 10
+        val armorTopY = armorTopPreferredY.coerceAtMost(armorTopMaxY)
+        val armorBottomY = armorTopY + slotSize + slotGapY
 
-        val slotAreaHeight = (slotAreaBottom - slotAreaTop).coerceAtLeast(slotBlockHeight)
+        // Group A: held items row (raised to align with armor-block vertical center)
+        val heldRowX = (rightX + 6).coerceAtMost(rightContentRight - rowWidth - 2).coerceAtLeast(rightX)
+        val heldRowYMax = nameY - slotSize - 2
+        val heldRowYMin = hpTextY + font.lineHeight + 2
+        val heldRowYTarget = armorTopY + ((armorBlockHeight - slotSize) / 2)
+        val heldRowY = heldRowYTarget.coerceIn(heldRowYMin, heldRowYMax)
+        val heldLeftX = heldRowX
+        val heldRightX = heldLeftX + slotSize + slotGapX
 
-        val slotBlockRightInset = 2
-        val slotBlockX = (slotAreaRight - slotBlockWidth - slotBlockRightInset).coerceAtLeast(slotAreaLeft)
-        val slotBlockY = slotAreaTop + ((slotAreaHeight - slotBlockHeight) / 2)
+        // Held items row
+        drawItemSlot(context, font, target.mainHandItem, heldLeftX, heldRowY, slotSize)
+        drawItemSlot(context, font, target.offhandItem, heldRightX, heldRowY, slotSize)
 
-        val col1X = slotBlockX
-        val col2X = col1X + slotSize + slotGapX
-        val row1Y = slotBlockY
-        val row2Y = row1Y + slotSize + slotGapY
-        val row3Y = row2Y + slotSize + slotGapY
-
-        // Row 1: mainhand / offhand
-        drawItemSlot(context, font, target.mainHandItem, col1X, row1Y, slotSize)
-        drawItemSlot(context, font, target.offhandItem, col2X, row1Y, slotSize)
-
-        // Row 2: helmet / chestplate
+        // Armor grid (2x2)
         val helmet = target.getItemBySlot(EquipmentSlot.HEAD)
         val chestplate = target.getItemBySlot(EquipmentSlot.CHEST)
-        drawItemSlot(context, font, helmet, col1X, row2Y, slotSize)
-        drawItemSlot(context, font, chestplate, col2X, row2Y, slotSize)
+        drawItemSlot(context, font, helmet, armorLeftX, armorTopY, slotSize)
+        drawItemSlot(context, font, chestplate, armorRightX, armorTopY, slotSize)
 
-        // Row 3: leggings / boots
         val leggings = target.getItemBySlot(EquipmentSlot.LEGS)
         val boots = target.getItemBySlot(EquipmentSlot.FEET)
-        drawItemSlot(context, font, leggings, col1X, row3Y, slotSize)
-        drawItemSlot(context, font, boots, col2X, row3Y, slotSize)
+        drawItemSlot(context, font, leggings, armorLeftX, armorBottomY, slotSize)
+        drawItemSlot(context, font, boots, armorRightX, armorBottomY, slotSize)
 
         val nameX = rightX
         val nameMaxWidth = rightWidth.coerceAtLeast(20)
@@ -485,34 +487,34 @@ internal class TargetHudRenderer {
         val zoomFactor = lerp(1.0f, 0.52f, zoomSlider.coerceIn(0f, 1f))
         val previewSize = (basePreviewSize * zoomFactor).coerceAtLeast(12f)
 
-        // Full 360 yaw + limited pitch range
-        val yawDegrees = yawSlider.coerceIn(0f, 1f) * 360f
-        val pitchDegrees = ((pitchSlider.coerceIn(0f, 1f) * 2f) - 1f) * 46f
-        // Forward-facing default for this render path
-        val baseYaw = 0f
-        val finalYaw = baseYaw + yawDegrees
-        val finalPitch = pitchDegrees
-        val yawRad = Math.toRadians(finalYaw.toDouble()).toFloat()
-        val pitchRad = Math.toRadians(finalPitch.toDouble()).toFloat()
-
-        // NameMC-like preview orbit:
-        // - yaw turns the preview around the vertical center axis
-        // - pitch changes vertical view angle while keeping a standing pose
+        // Orbit angles:
+        // slider1 => full horizontal orbit
+        // slider2 => vertical orbit elevation
+        val orbitYawDegrees = (yawSlider.coerceIn(0f, 1f) * 360f) - 180f
+        val orbitPitchDegrees = ((pitchSlider.coerceIn(0f, 1f) * 2f) - 1f) * 46f
+        val orbitPitchRad = Math.toRadians(orbitPitchDegrees.toDouble()).toFloat()
+        val pitchQuaternion = Quaternionf().rotateX(orbitPitchRad)
         val modelRotation = Quaternionf()
             .rotateZ(Math.PI.toFloat())
-            .rotateY(yawRad)
-            .rotateX(pitchRad)
+            .mul(Quaternionf(pitchQuaternion))
 
-        val cameraRotation = Quaternionf().rotateX(pitchRad)
         try {
             val renderState = Minecraft.getInstance().entityRenderDispatcher.extractEntity(target, 1f)
 
             if (renderState is LivingEntityRenderState) {
-                // Hard-detach preview orientation from in-world player look direction
-                // and keep the model in a normal standing state.
-                renderState.bodyRot = 180f
+                // Hard-detach preview orientation from in-world player look direction.
+                // Yaw comes only from slider 1 (full 360° range).
+                val previewBodyYaw = 180f + orbitYawDegrees
+                renderState.bodyRot = previewBodyYaw
+                // Keep head aligned with body in preview so it doesn't drift/twist
+                // independently during yaw orbit.
                 renderState.yRot = 0f
-                renderState.xRot = if (renderState.pose == Pose.FALL_FLYING) 0f else -finalPitch
+                renderState.xRot = 0f
+
+                if (renderState is AvatarRenderState) {
+                    renderState.shouldApplyFlyingYRot = false
+                    renderState.flyingYRot = 0f
+                }
 
                 val normalizedScale = if (renderState.scale == 0f) 1f else renderState.scale
                 renderState.boundingBoxWidth /= normalizedScale
@@ -520,9 +522,12 @@ internal class TargetHudRenderer {
                 renderState.scale = 1f
             }
 
-            // Center pivot for both yaw and pitch orbit so there is no "feet-anchored wobble".
+            // Fixed-center preview: entity stays anchored with a stable center pivot.
             val pivotCenterY = renderState.boundingBoxHeight * 0.5f
             val translation = Vector3f(0f, pivotCenterY, 0f)
+            // Vanilla-like inventory preview path: pitch is applied through both
+            // modelRotation and cameraRotation so vertical orbit is visible in runtime.
+            val cameraRotation = Quaternionf(pitchQuaternion)
 
             // Strip all non-model extras so preview area contains only frame + model
             renderState.lightCoords = 0x00F000F0
