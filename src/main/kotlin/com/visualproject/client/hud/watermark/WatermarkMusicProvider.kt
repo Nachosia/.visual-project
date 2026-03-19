@@ -3,7 +3,7 @@ package com.visualproject.client.hud.watermark
 import com.google.gson.JsonElement
 import com.google.gson.JsonParser
 import net.minecraft.client.Minecraft
-import net.minecraft.resources.ResourceLocation
+import net.minecraft.resources.Identifier
 import org.slf4j.LoggerFactory
 import java.io.ByteArrayOutputStream
 import java.io.InputStream
@@ -32,7 +32,7 @@ data class WatermarkTrackInfo(
     val durationSeconds: Float = 0f,
     val playbackState: WatermarkPlaybackState = WatermarkPlaybackState.PLAYING,
     val artworkPath: String? = null,
-    val artworkTexture: ResourceLocation? = null,
+    val artworkTexture: Identifier? = null,
 ) {
     val progressNormalized: Float
         get() = if (durationSeconds <= 0f) 0f else (positionSeconds / durationSeconds).coerceIn(0f, 1f)

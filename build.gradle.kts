@@ -55,7 +55,7 @@ val stageNativeMediaBridge by tasks.registering(Copy::class) {
 }
 
 repositories {
-	maven("https://maven.wispforest.io")
+	maven("https://maven.daqem.com/releases")
 	maven("https://jitpack.io")
 	maven("https://api.modrinth.com/maven") {
 		name = "Modrinth"
@@ -72,7 +72,7 @@ dependencies {
 
 	modImplementation("net.fabricmc.fabric-api:fabric-api:${providers.gradleProperty("fabric_api_version").get()}")
 	modImplementation("net.fabricmc:fabric-language-kotlin:${providers.gradleProperty("fabric_kotlin_version").get()}")
-	modImplementation("io.wispforest:owo-lib:${providers.gradleProperty("owo_version").get()}")
+	modImplementation("com.daqem.uilib:uilib-fabric:19.1.0")
 }
 
 tasks.processResources {

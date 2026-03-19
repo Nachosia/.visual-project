@@ -11,7 +11,7 @@ import net.minecraft.client.gui.screens.Screen
 import net.minecraft.client.input.MouseButtonEvent
 import net.minecraft.client.renderer.RenderPipelines
 import net.minecraft.client.renderer.texture.DynamicTexture
-import net.minecraft.resources.ResourceLocation
+import net.minecraft.resources.Identifier
 import org.slf4j.LoggerFactory
 import java.nio.file.Files
 import java.nio.file.Path
@@ -25,7 +25,7 @@ class WatermarkHudRenderer(
 ) {
 
     private data class ArtworkResolution(
-        val texture: ResourceLocation?,
+        val texture: Identifier?,
         val reason: String,
         val textureWidth: Int = 0,
         val textureHeight: Int = 0,
@@ -75,22 +75,22 @@ class WatermarkHudRenderer(
     private var currentArtworkPath: String? = null
     private var lastArtworkResolveReason: String = "uninitialized"
     private var lastArtworkResolveState: String? = null
-    private var lastSuccessfulArtworkTexture: ResourceLocation? = null
+    private var lastSuccessfulArtworkTexture: Identifier? = null
     private var lastSuccessfulArtworkPath: String? = null
     private var lastSuccessfulArtworkWidth: Int = 0
     private var lastSuccessfulArtworkHeight: Int = 0
     private var lastExpandedFillState: String? = null
-    private var displayedArtworkTexture: ResourceLocation? = null
+    private var displayedArtworkTexture: Identifier? = null
     private var displayedArtworkPath: String? = null
-    private var previousArtworkTexture: ResourceLocation? = null
+    private var previousArtworkTexture: Identifier? = null
     private var artworkSwitchStartedAtMs: Long = 0L
     private val artworkSwitchDurationMs = 165L
     private val lastArtworkDrawStateBySlot = HashMap<String, String>()
 
-    private val artworkTextureCache = HashMap<ArtworkCacheKey, ResourceLocation>()
+    private val artworkTextureCache = HashMap<ArtworkCacheKey, Identifier>()
     private val artworkTextureSizes = HashMap<ArtworkCacheKey, Pair<Int, Int>>()
     private val artworkSourceSizeByPath = HashMap<String, Pair<Int, Int>>()
-    private val artworkSizeByTexture = HashMap<ResourceLocation, Pair<Int, Int>>()
+    private val artworkSizeByTexture = HashMap<Identifier, Pair<Int, Int>>()
     private val artworkLoadFailures = HashSet<String>()
     private val artworkLoggedExists = HashSet<String>()
     private val artworkLoggedSignatures = HashSet<ArtworkCacheKey>()
@@ -597,7 +597,7 @@ class WatermarkHudRenderer(
 
     private fun blitArtworkTexture(
         context: GuiGraphics,
-        texture: ResourceLocation,
+        texture: Identifier,
         drawLeft: Int,
         drawTop: Int,
         drawSize: Int,
@@ -824,7 +824,7 @@ class WatermarkHudRenderer(
         )
     }
 
-    private fun updateDisplayedArtwork(artworkPath: String?, resolvedTexture: ResourceLocation?) {
+    private fun updateDisplayedArtwork(artworkPath: String?, resolvedTexture: Identifier?) {
         if (resolvedTexture == null) return
         if (displayedArtworkTexture == null) {
             displayedArtworkTexture = resolvedTexture
@@ -960,7 +960,7 @@ class WatermarkHudRenderer(
                 )
             }
 
-            val textureId = ResourceLocation.fromNamespaceAndPath(
+            val textureId = Identifier.fromNamespaceAndPath(
                 "visualclient",
                 "watermark_artwork_${cacheKey.textureSuffix}",
             )
@@ -1036,7 +1036,7 @@ class WatermarkHudRenderer(
         artworkRetryAfterMillis.remove(artworkPath)
     }
 
-    private fun resolveTextureSize(texture: ResourceLocation, artworkPath: String?): Pair<Int, Int> {
+    private fun resolveTextureSize(texture: Identifier, artworkPath: String?): Pair<Int, Int> {
         artworkSizeByTexture[texture]?.let { return it }
         if (!artworkPath.isNullOrBlank()) {
             artworkSourceSizeByPath[artworkPath]?.let { return it }

@@ -4,10 +4,10 @@ import net.minecraft.network.chat.Component
 import net.minecraft.network.chat.FontDescription
 import net.minecraft.network.chat.MutableComponent
 import net.minecraft.network.chat.Style
-import net.minecraft.resources.ResourceLocation
+import net.minecraft.resources.Identifier
 
 object VisualFont {
-    private val customFontId = ResourceLocation.fromNamespaceAndPath("visualclient", "jalnan")
+    private val customFontId = Identifier.fromNamespaceAndPath("visualclient", "jalnan")
     private val customFontDescription = FontDescription.Resource(customFontId)
 
     // Primary UI font.

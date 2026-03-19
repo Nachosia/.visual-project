@@ -25,13 +25,13 @@ internal class TargetHudRenderer {
     private object Style {
         const val panelFill = 0xF0101522.toInt()
         const val panelBorder = 0xCC39435A.toInt()
-        const val previewFill = 0xCC121A2B.toInt()
-        const val previewBorder = 0xC94A5676.toInt()
+        const val previewFill = 0xE0121724.toInt()
+        const val previewBorder = 0x7A313C56
         const val barTrack = 0xA5202737.toInt()
         const val barBorder = 0x95414B65.toInt()
         const val barFill = 0xE87E63FF.toInt()
-        const val slotFill = 0xA0121828.toInt()
-        const val slotBorder = 0x8E3A4662.toInt()
+        const val slotFill = 0x88131927.toInt()
+        const val slotBorder = 0x52303A54
         const val textPrimary = 0xFFF2F5FF.toInt()
         const val textSecondary = 0xFF9FAACC.toInt()
         const val sliderTrack = 0xB6222B3D.toInt()

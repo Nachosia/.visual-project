@@ -8,7 +8,7 @@ import net.fabricmc.fabric.api.client.event.lifecycle.v1.ClientTickEvents
 import net.fabricmc.fabric.api.client.keybinding.v1.KeyBindingHelper
 import net.minecraft.client.KeyMapping
 import net.minecraft.client.Minecraft
-import net.minecraft.resources.ResourceLocation
+import net.minecraft.resources.Identifier
 import org.lwjgl.glfw.GLFW
 import org.slf4j.LoggerFactory
 
@@ -17,7 +17,7 @@ object VisualClientMod : ClientModInitializer {
 
     private lateinit var openVisualsMenuKey: KeyMapping
     private val visualsCategory = KeyMapping.Category.register(
-        ResourceLocation.fromNamespaceAndPath("visualclient", "visuals")
+        Identifier.fromNamespaceAndPath("visualclient", "visuals")
     )
 
     override fun onInitializeClient() {
