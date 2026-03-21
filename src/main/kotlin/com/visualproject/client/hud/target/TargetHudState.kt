@@ -17,21 +17,21 @@ data class TargetHudBounds(
 }
 
 object TargetHudLayout {
-    const val width = 196
-    const val height = 96
-    const val radius = 14
+    const val width = 212
+    const val height = 104
+    const val radius = 18
 
-    const val previewWidth = 64
-    const val previewHeight = 80
-    const val previewRadius = 12
-    const val panelPadding = 8
+    const val previewWidth = 74
+    const val previewHeight = 86
+    const val previewRadius = 16
+    const val panelPadding = 10
 
-    const val itemSlotSize = 16
+    const val itemSlotSize = 17
     const val itemSlotGap = 4
 
     const val sliderTrackHeight = 4
     const val sliderGap = 3
-    const val sliderHorizontalInset = 10
+    const val sliderHorizontalInset = 12
 }
 
 class TargetHudDragState(initialPosition: TargetHudPosition) {

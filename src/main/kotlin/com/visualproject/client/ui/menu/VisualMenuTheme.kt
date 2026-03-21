@@ -64,6 +64,8 @@ internal object VisualMenuTheme {
     const val settingsBorder = 0xFF3C4D70.toInt()
     const val settingsRadius = 16
     const val settingsHeight = 92
+    const val settingInputFill = 0xFF121B2D.toInt()
+    const val settingInputBorder = 0xFF344361.toInt()
 
     const val iconSlotFill = 0x8F141D33.toInt()
     const val iconSlotBorder = 0x7A3A4D73

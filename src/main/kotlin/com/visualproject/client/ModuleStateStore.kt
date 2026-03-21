@@ -22,6 +22,8 @@ object ModuleStateStore {
 
     private val moduleEnabledState: MutableMap<String, Boolean> = ConcurrentHashMap()
     private val moduleSettingsState: MutableMap<String, Boolean> = ConcurrentHashMap()
+    private val moduleNumberSettingsState: MutableMap<String, Float> = ConcurrentHashMap()
+    private val moduleTextSettingsState: MutableMap<String, String> = ConcurrentHashMap()
 
     fun initialize() {
         ensureInitialized()
@@ -68,6 +70,40 @@ object ModuleStateStore {
         if (previous != enabled) persist()
     }
 
+    fun ensureNumberSetting(key: String, defaultValue: Float = 0f) {
+        ensureInitialized()
+        val inserted = moduleNumberSettingsState.putIfAbsent(key, defaultValue) == null
+        if (inserted) persist()
+    }
+
+    fun getNumberSetting(key: String, defaultValue: Float = 0f): Float {
+        ensureInitialized()
+        return moduleNumberSettingsState[key] ?: defaultValue
+    }
+
+    fun setNumberSetting(key: String, value: Float) {
+        ensureInitialized()
+        val previous = moduleNumberSettingsState.put(key, value)
+        if (previous != value) persist()
+    }
+
+    fun ensureTextSetting(key: String, defaultValue: String = "") {
+        ensureInitialized()
+        val inserted = moduleTextSettingsState.putIfAbsent(key, defaultValue) == null
+        if (inserted) persist()
+    }
+
+    fun getTextSetting(key: String, defaultValue: String = ""): String {
+        ensureInitialized()
+        return moduleTextSettingsState[key] ?: defaultValue
+    }
+
+    fun setTextSetting(key: String, value: String) {
+        ensureInitialized()
+        val previous = moduleTextSettingsState.put(key, value)
+        if (previous != value) persist()
+    }
+
     private fun ensureInitialized() {
         if (initialized) return
         synchronized(initLock) {
@@ -88,6 +124,8 @@ object ModuleStateStore {
         val defaultJson = JsonObject().apply {
             add("modules", JsonObject())
             add("settings", JsonObject())
+            add("numberSettings", JsonObject())
+            add("textSettings", JsonObject())
         }
 
         try {
@@ -114,6 +152,8 @@ object ModuleStateStore {
 
             moduleEnabledState.clear()
             moduleSettingsState.clear()
+            moduleNumberSettingsState.clear()
+            moduleTextSettingsState.clear()
 
             json.getAsJsonObject("modules")?.entrySet()?.forEach { entry ->
                 moduleEnabledState[entry.key] = entry.value?.asBoolean == true
@@ -121,12 +161,26 @@ object ModuleStateStore {
             json.getAsJsonObject("settings")?.entrySet()?.forEach { entry ->
                 moduleSettingsState[entry.key] = entry.value?.asBoolean == true
             }
+            json.getAsJsonObject("numberSettings")?.entrySet()?.forEach { entry ->
+                val value = runCatching { entry.value?.asFloat }.getOrNull()
+                if (value != null) {
+                    moduleNumberSettingsState[entry.key] = value
+                }
+            }
+            json.getAsJsonObject("textSettings")?.entrySet()?.forEach { entry ->
+                val value = runCatching { entry.value?.asString }.getOrNull()
+                if (value != null) {
+                    moduleTextSettingsState[entry.key] = value
+                }
+            }
 
             logger.info(
-                "module-state: loaded '{}' modules={} settings={}",
+                "module-state: loaded '{}' modules={} settings={} numberSettings={} textSettings={}",
                 configPath,
                 moduleEnabledState.size,
                 moduleSettingsState.size,
+                moduleNumberSettingsState.size,
+                moduleTextSettingsState.size,
             )
         } catch (throwable: Throwable) {
             logger.warn("module-state: failed to load existing config '{}'", configPath, throwable)
@@ -149,10 +203,22 @@ object ModuleStateStore {
                         .toSortedMap()
                         .forEach { (key, enabled) -> addProperty(key, enabled) }
                 }
+                val numberSettingsJson = JsonObject().apply {
+                    moduleNumberSettingsState
+                        .toSortedMap()
+                        .forEach { (key, value) -> addProperty(key, value) }
+                }
+                val textSettingsJson = JsonObject().apply {
+                    moduleTextSettingsState
+                        .toSortedMap()
+                        .forEach { (key, value) -> addProperty(key, value) }
+                }
 
                 val rootJson = JsonObject().apply {
                     add("modules", modulesJson)
                     add("settings", settingsJson)
+                    add("numberSettings", numberSettingsJson)
+                    add("textSettings", textSettingsJson)
                 }
 
                 Files.writeString(

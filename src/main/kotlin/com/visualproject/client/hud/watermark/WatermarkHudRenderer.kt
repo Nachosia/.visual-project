@@ -1,6 +1,11 @@
 package com.visualproject.client.hud.watermark
 
 import com.mojang.blaze3d.platform.NativeImage
+import com.visualproject.client.ModuleStateStore
+import com.visualproject.client.render.sdf.SdfGlowStyle
+import com.visualproject.client.render.sdf.SdfPanelRenderer
+import com.visualproject.client.render.sdf.SdfPanelStyle
+import com.visualproject.client.render.sdf.SdfShadeStyle
 import com.visualproject.client.vText
 import com.visualproject.client.vBrandText
 import net.minecraft.client.DeltaTracker
@@ -23,6 +28,9 @@ import kotlin.math.sqrt
 class WatermarkHudRenderer(
     private val musicProvider: WatermarkMusicProvider = SpotifySoundCloudMusicProvider(),
 ) {
+    companion object {
+        private const val watermarkModuleId = "watermark"
+    }
 
     private data class ArtworkResolution(
         val texture: Identifier?,
@@ -193,26 +201,13 @@ class WatermarkHudRenderer(
     }
 
     private fun drawMainShell(context: GuiGraphics, bounds: HudBounds, expansion: Float) {
-        val glowPadding = 2 + expansion.roundToInt()
-        fillRoundedRect(
-            context,
-            bounds.left - glowPadding,
-            bounds.top - glowPadding,
-            bounds.width + (glowPadding * 2),
-            bounds.height + (glowPadding * 2),
-            WatermarkHudTheme.radius + glowPadding,
-            withAlpha(WatermarkHudTheme.outerGlow, 0.28f + (expansion * 0.10f)),
-        )
-
-        drawRoundedPanel(
-            context,
-            bounds.left,
-            bounds.top,
-            bounds.width,
-            bounds.height,
-            WatermarkHudTheme.panelFill,
-            WatermarkHudTheme.panelBorder,
-            WatermarkHudTheme.radius + expansion.roundToInt(),
+        SdfPanelRenderer.draw(
+            context = context,
+            x = bounds.left,
+            y = bounds.top,
+            width = bounds.width,
+            height = bounds.height,
+            style = watermarkShellStyle(expansion),
         )
     }
 
@@ -324,14 +319,13 @@ class WatermarkHudRenderer(
 
         // Keep expanded state as one cohesive rounded body (no rectangular "forehead" strip).
         val innerRadius = (WatermarkHudTheme.radius - 1).coerceAtLeast(10)
-        fillRoundedRect(
-            context,
-            bounds.left + 1,
-            bounds.top + 1,
-            bounds.width - 2,
-            bounds.height - 2,
-            innerRadius,
-            withAlpha(WatermarkHudTheme.expandedInnerFill, alpha),
+        SdfPanelRenderer.draw(
+            context = context,
+            x = bounds.left + 1,
+            y = bounds.top + 1,
+            width = bounds.width - 2,
+            height = bounds.height - 2,
+            style = watermarkExpandedInnerStyle(alpha, innerRadius.toFloat()),
         )
         if (debugArtworkPipeline) {
             val state = "${bounds.left},${bounds.top},${bounds.width},${bounds.height}"
@@ -654,6 +648,89 @@ class WatermarkHudRenderer(
             bounds.top + ((bounds.height - font.lineHeight) / 2),
             withAlpha(WatermarkHudTheme.textPrimary, alpha),
             false,
+        )
+    }
+
+    private fun watermarkShellStyle(expansion: Float): SdfPanelStyle {
+        val outerGlowEnabled = ModuleStateStore.isSettingEnabled("${watermarkModuleId}:outer_glow")
+        val accentSync = ModuleStateStore.isSettingEnabled("${watermarkModuleId}:accent_sync")
+        val configuredGlowStrength = ModuleStateStore.getNumberSetting("${watermarkModuleId}:outer_glow_strength", 0.60f)
+            .coerceIn(0f, 1.25f)
+        val configuredGlowDistance = ModuleStateStore.getNumberSetting("${watermarkModuleId}:outer_glow_distance", 22f)
+            .coerceIn(0f, 64f)
+        val glowColor = if (accentSync) {
+            WatermarkHudTheme.accent
+        } else {
+            parseGlowColor(ModuleStateStore.getTextSetting("${watermarkModuleId}:outer_glow_color", "#6170D8"))
+                ?: 0xFF6170D8.toInt()
+        }
+        val glowOpacityScale = (configuredGlowStrength / 0.60f).coerceIn(0f, 1.75f)
+        val glowOpacity = ((0.18f + (expansion * 0.08f)) * glowOpacityScale).coerceIn(0f, 0.52f)
+
+        return SdfPanelStyle(
+            baseColor = WatermarkHudTheme.panelFill,
+            borderColor = WatermarkHudTheme.panelBorder,
+            borderWidthPx = 1.25f,
+            radiusPx = WatermarkHudTheme.radius + (expansion * 2f),
+            innerGlow = SdfGlowStyle(
+                color = 0xFFFFFFFF.toInt(),
+                radiusPx = 13f + (expansion * 4f),
+                strength = 0.12f,
+                opacity = 0.10f,
+            ),
+            outerGlow = if (outerGlowEnabled) {
+                SdfGlowStyle(
+                    color = glowColor,
+                    radiusPx = configuredGlowDistance + (expansion * 10f),
+                    strength = configuredGlowStrength,
+                    opacity = glowOpacity,
+                )
+            } else {
+                SdfGlowStyle(
+                    color = glowColor,
+                    radiusPx = 0f,
+                    strength = 0f,
+                    opacity = 0f,
+                )
+            },
+            shade = SdfShadeStyle(
+                topColor = 0x12FFFFFF,
+                bottomColor = 0x28000000,
+            ),
+        )
+    }
+
+    private fun parseGlowColor(raw: String?): Int? {
+        val compact = raw?.trim()?.removePrefix("#") ?: return null
+        return when (compact.length) {
+            6 -> compact.toLongOrNull(16)?.toInt()?.let { 0xFF000000.toInt() or it }
+            8 -> compact.toLongOrNull(16)?.toInt()
+            else -> null
+        }
+    }
+
+    private fun watermarkExpandedInnerStyle(alpha: Float, radiusPx: Float): SdfPanelStyle {
+        return SdfPanelStyle(
+            baseColor = withAlpha(WatermarkHudTheme.expandedInnerFill, alpha),
+            borderColor = withAlpha(WatermarkHudTheme.expandedInnerBorder, alpha),
+            borderWidthPx = 1f,
+            radiusPx = radiusPx,
+            innerGlow = SdfGlowStyle(
+                color = 0xFFFFFFFF.toInt(),
+                radiusPx = 10f,
+                strength = 0.10f,
+                opacity = 0.08f * alpha,
+            ),
+            outerGlow = SdfGlowStyle(
+                color = 0xFF000000.toInt(),
+                radiusPx = 0f,
+                strength = 0f,
+                opacity = 0f,
+            ),
+            shade = SdfShadeStyle(
+                topColor = withAlpha(0x14FFFFFF, alpha),
+                bottomColor = withAlpha(0x14000000, alpha),
+            ),
         )
     }
 

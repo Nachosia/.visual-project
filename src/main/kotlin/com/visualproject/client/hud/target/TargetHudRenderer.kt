@@ -1,5 +1,12 @@
 package com.visualproject.client.hud.target
 
+import com.visualproject.client.render.sdf.SdfGlowStyle
+import com.visualproject.client.render.sdf.SdfNeonBorderStyle
+import com.visualproject.client.render.sdf.SdfPanelRenderer
+import com.visualproject.client.render.sdf.SdfPanelStyle
+import com.visualproject.client.render.sdf.SdfShadeStyle
+import com.visualproject.client.ui.menu.VisualMenuTheme
+import com.visualproject.client.ui.menu.blendColor
 import com.visualproject.client.vText
 import net.minecraft.client.DeltaTracker
 import net.minecraft.client.Minecraft
@@ -18,29 +25,130 @@ import org.joml.Vector3f
 import org.slf4j.LoggerFactory
 import kotlin.math.min
 import kotlin.math.roundToInt
-import kotlin.math.sqrt
 
 internal class TargetHudRenderer {
 
     private object Style {
-        const val panelFill = 0xF0101522.toInt()
-        const val panelBorder = 0xCC39435A.toInt()
-        const val previewFill = 0xE0121724.toInt()
-        const val previewBorder = 0x7A313C56
-        const val barTrack = 0xA5202737.toInt()
-        const val barBorder = 0x95414B65.toInt()
-        const val barFill = 0xE87E63FF.toInt()
-        const val slotFill = 0x88131927.toInt()
-        const val slotBorder = 0x52303A54
         const val textPrimary = 0xFFF2F5FF.toInt()
         const val textSecondary = 0xFF9FAACC.toInt()
-        const val sliderTrack = 0xB6222B3D.toInt()
-        const val sliderTrackBorder = 0xA53B4763.toInt()
-        const val sliderFill = 0xF08368FF.toInt()
-        const val sliderKnob = 0xFFEDEFFF.toInt()
-        const val sliderKnobBorder = 0xBB9AA6CF.toInt()
-        const val sliderDockFill = 0xD00D1320.toInt()
-        const val sliderDockBorder = 0xA5364462.toInt()
+
+        fun shell(): SdfPanelStyle = SdfPanelStyle(
+            baseColor = 0xF50D1220.toInt(),
+            borderColor = 0xA83C4A67.toInt(),
+            borderWidthPx = 1.3f,
+            radiusPx = TargetHudLayout.radius.toFloat(),
+            innerGlow = SdfGlowStyle(0xFFFFFFFF.toInt(), radiusPx = 14f, strength = 0.04f, opacity = 0.03f),
+            outerGlow = SdfGlowStyle(VisualMenuTheme.accentStrong, radiusPx = 22f, strength = 0.14f, opacity = 0.08f),
+            shade = SdfShadeStyle(0x10FFFFFF, 0x16000000),
+            neonBorder = SdfNeonBorderStyle(0xA28A71FF.toInt(), widthPx = 1.0f, softnessPx = 5f, strength = 0.64f),
+        )
+
+        fun preview(): SdfPanelStyle = SdfPanelStyle(
+            baseColor = 0xEE10182A.toInt(),
+            borderColor = 0x88405273.toInt(),
+            borderWidthPx = 1.1f,
+            radiusPx = TargetHudLayout.previewRadius.toFloat(),
+            innerGlow = SdfGlowStyle(VisualMenuTheme.accentStrong, radiusPx = 12f, strength = 0.06f, opacity = 0.05f),
+            outerGlow = SdfGlowStyle(0xFF000000.toInt(), radiusPx = 14f, strength = 0.12f, opacity = 0.12f),
+            shade = SdfShadeStyle(0x0EFFFFFF, 0x16000000),
+            neonBorder = SdfNeonBorderStyle(0x566B79FF, widthPx = 0.9f, softnessPx = 4f, strength = 0.34f),
+        )
+
+        fun barTrack(): SdfPanelStyle = SdfPanelStyle(
+            baseColor = 0xD1182030.toInt(),
+            borderColor = 0x95415070.toInt(),
+            borderWidthPx = 1.0f,
+            radiusPx = 5f,
+            innerGlow = SdfGlowStyle(0xFFFFFFFF.toInt(), radiusPx = 5f, strength = 0.02f, opacity = 0.02f),
+            outerGlow = SdfGlowStyle(0x00000000, radiusPx = 0f, strength = 0f, opacity = 0f),
+            shade = SdfShadeStyle(0x08FFFFFF, 0x10000000),
+            neonBorder = SdfNeonBorderStyle(0x345266C0, widthPx = 0.75f, softnessPx = 3.5f, strength = 0.20f),
+        )
+
+        fun barFill(ratio: Float): SdfPanelStyle {
+            val fill = blendColor(0xFFE86573.toInt(), VisualMenuTheme.accentStrong, ratio)
+            val glow = blendColor(0xFFFC9E87.toInt(), VisualMenuTheme.accentStrong, ratio)
+            return SdfPanelStyle(
+                baseColor = fill,
+                borderColor = blendColor(fill, 0xFFFFFFFF.toInt(), 0.15f),
+                borderWidthPx = 0.8f,
+                radiusPx = 4f,
+                innerGlow = SdfGlowStyle(0xFFFFFFFF.toInt(), radiusPx = 6f, strength = 0.05f, opacity = 0.04f),
+                outerGlow = SdfGlowStyle(glow, radiusPx = 8f, strength = 0.16f, opacity = 0.08f),
+                shade = SdfShadeStyle(0x10FFFFFF, 0x0E000000),
+                neonBorder = SdfNeonBorderStyle(glow, widthPx = 0.9f, softnessPx = 4f, strength = 0.48f),
+            )
+        }
+
+        fun slot(filled: Boolean): SdfPanelStyle = SdfPanelStyle(
+            baseColor = if (filled) 0xC6141C2E.toInt() else 0x9E111827.toInt(),
+            borderColor = if (filled) 0x7A50638D else 0x5632405D,
+            borderWidthPx = 1.0f,
+            radiusPx = 7f,
+            innerGlow = SdfGlowStyle(
+                color = if (filled) VisualMenuTheme.accentStrong else 0xFFFFFFFF.toInt(),
+                radiusPx = 8f,
+                strength = if (filled) 0.08f else 0.02f,
+                opacity = if (filled) 0.06f else 0.02f,
+            ),
+            outerGlow = SdfGlowStyle(
+                color = if (filled) VisualMenuTheme.accentStrong else 0xFF000000.toInt(),
+                radiusPx = 10f,
+                strength = if (filled) 0.10f else 0.08f,
+                opacity = if (filled) 0.06f else 0.08f,
+            ),
+            shade = SdfShadeStyle(0x08FFFFFF, 0x10000000),
+            neonBorder = SdfNeonBorderStyle(
+                color = if (filled) 0x707187FF else 0x244D60B2,
+                widthPx = if (filled) 0.9f else 0.75f,
+                softnessPx = 4f,
+                strength = if (filled) 0.38f else 0.14f,
+            ),
+        )
+
+        fun sliderDock(): SdfPanelStyle = SdfPanelStyle(
+            baseColor = 0xE20C1320.toInt(),
+            borderColor = 0x94405072.toInt(),
+            borderWidthPx = 1.1f,
+            radiusPx = 12f,
+            innerGlow = SdfGlowStyle(VisualMenuTheme.accentStrong, radiusPx = 12f, strength = 0.05f, opacity = 0.04f),
+            outerGlow = SdfGlowStyle(0xFF000000.toInt(), radiusPx = 14f, strength = 0.10f, opacity = 0.12f),
+            shade = SdfShadeStyle(0x0CFFFFFF, 0x14000000),
+            neonBorder = SdfNeonBorderStyle(0x5A6A7EFF, widthPx = 0.9f, softnessPx = 4f, strength = 0.30f),
+        )
+
+        fun sliderTrack(active: Boolean): SdfPanelStyle = SdfPanelStyle(
+            baseColor = if (active) 0xCF172133.toInt() else 0xB71A2335.toInt(),
+            borderColor = if (active) 0xA752638B.toInt() else 0x863B4B67.toInt(),
+            borderWidthPx = 1.0f,
+            radiusPx = 3f,
+            innerGlow = SdfGlowStyle(0xFFFFFFFF.toInt(), radiusPx = 5f, strength = 0.02f, opacity = 0.02f),
+            outerGlow = SdfGlowStyle(VisualMenuTheme.accentStrong, radiusPx = 8f, strength = if (active) 0.12f else 0.08f, opacity = if (active) 0.08f else 0.04f),
+            shade = SdfShadeStyle(0x08FFFFFF, 0x0E000000),
+            neonBorder = SdfNeonBorderStyle(if (active) 0x746C82FF else 0x345164B6, widthPx = 0.8f, softnessPx = 3.5f, strength = if (active) 0.42f else 0.22f),
+        )
+
+        fun sliderFill(): SdfPanelStyle = SdfPanelStyle(
+            baseColor = VisualMenuTheme.accentStrong,
+            borderColor = 0xFFD2C8FF.toInt(),
+            borderWidthPx = 0.8f,
+            radiusPx = 2.5f,
+            innerGlow = SdfGlowStyle(0xFFFFFFFF.toInt(), radiusPx = 5f, strength = 0.06f, opacity = 0.05f),
+            outerGlow = SdfGlowStyle(VisualMenuTheme.accentStrong, radiusPx = 8f, strength = 0.16f, opacity = 0.10f),
+            shade = SdfShadeStyle(0x10FFFFFF, 0x0A000000),
+            neonBorder = SdfNeonBorderStyle(0xD5B8FFFF.toInt(), widthPx = 0.9f, softnessPx = 4f, strength = 0.55f),
+        )
+
+        fun sliderKnob(active: Boolean): SdfPanelStyle = SdfPanelStyle(
+            baseColor = 0xFFF0F2FF.toInt(),
+            borderColor = if (active) VisualMenuTheme.accentStrong else 0xFFB3BEDD.toInt(),
+            borderWidthPx = 1.0f,
+            radiusPx = 5f,
+            innerGlow = SdfGlowStyle(0xFFFFFFFF.toInt(), radiusPx = 6f, strength = 0.06f, opacity = 0.06f),
+            outerGlow = SdfGlowStyle(if (active) VisualMenuTheme.accentStrong else 0xFFAAB6DB.toInt(), radiusPx = 8f, strength = 0.16f, opacity = if (active) 0.12f else 0.07f),
+            shade = SdfShadeStyle(0x0EFFFFFF, 0x08000000),
+            neonBorder = SdfNeonBorderStyle(if (active) 0xCDB8FFFF.toInt() else 0x6FA5C2F4, widthPx = 0.9f, softnessPx = 4f, strength = if (active) 0.58f else 0.32f),
+        )
     }
 
     private enum class ActiveSlider {
@@ -100,15 +208,13 @@ internal class TargetHudRenderer {
             activeSlider = null
         }
 
-        drawRoundedPanel(
+        SdfPanelRenderer.draw(
             context = context,
             x = bounds.x,
             y = bounds.y,
             width = bounds.width,
             height = bounds.height,
-            fillColor = Style.panelFill,
-            borderColor = Style.panelBorder,
-            radius = TargetHudLayout.radius,
+            style = Style.shell(),
         )
 
         drawTargetContents(context, client.font, bounds, displayPlayer)
@@ -247,15 +353,13 @@ internal class TargetHudRenderer {
         val previewX = bounds.x + padding
         val previewY = bounds.y + (bounds.height - previewHeight) / 2
 
-        drawRoundedPanel(
+        SdfPanelRenderer.draw(
             context = context,
             x = previewX,
             y = previewY,
             width = previewWidth,
             height = previewHeight,
-            fillColor = Style.previewFill,
-            borderColor = Style.previewBorder,
-            radius = TargetHudLayout.previewRadius,
+            style = Style.preview(),
         )
         drawTargetPreview(
             context = context,
@@ -286,28 +390,25 @@ internal class TargetHudRenderer {
         val barY = bounds.y + 20
         val barWidth = rightWidth
         val barHeight = 6
-        drawRoundedPanel(
+        SdfPanelRenderer.draw(
             context = context,
             x = barX,
             y = barY,
             width = barWidth,
             height = barHeight,
-            fillColor = Style.barTrack,
-            borderColor = Style.barBorder,
-            radius = 4,
+            style = Style.barTrack(),
         )
 
         val hpRatio = (currentHp / maxHp).coerceIn(0f, 1f)
         val hpFill = (barWidth * hpRatio).roundToInt().coerceIn(0, barWidth)
-        if (hpFill > 2) {
-            fillRoundedRect(
+        if (hpFill > 1) {
+            SdfPanelRenderer.draw(
                 context = context,
                 x = barX + 1,
                 y = barY + 1,
-                width = hpFill - 2,
-                height = barHeight - 2,
-                radius = 3,
-                color = Style.barFill,
+                width = (hpFill - 2).coerceAtLeast(1),
+                height = (barHeight - 2).coerceAtLeast(1),
+                style = Style.barFill(hpRatio),
             )
         }
 
@@ -374,15 +475,13 @@ internal class TargetHudRenderer {
         val dockX = bounds.x + (bounds.width - dockWidth) / 2
         val dockY = bounds.y + bounds.height - 3
 
-        drawRoundedPanel(
+        SdfPanelRenderer.draw(
             context = context,
             x = dockX,
             y = dockY,
             width = dockWidth,
             height = dockHeight,
-            fillColor = Style.sliderDockFill,
-            borderColor = Style.sliderDockBorder,
-            radius = 10,
+            style = Style.sliderDock(),
         )
 
         val trackX = dockX + TargetHudLayout.sliderHorizontalInset
@@ -410,9 +509,9 @@ internal class TargetHudRenderer {
             height = TargetHudLayout.sliderTrackHeight + 6,
         )
 
-        drawPreviewSlider(context, trackX, yawTrackY, trackWidth, TargetHudLayout.sliderTrackHeight, yawSlider)
-        drawPreviewSlider(context, trackX, pitchTrackY, trackWidth, TargetHudLayout.sliderTrackHeight, pitchSlider)
-        drawPreviewSlider(context, trackX, zoomTrackY, trackWidth, TargetHudLayout.sliderTrackHeight, zoomSlider)
+        drawPreviewSlider(context, trackX, yawTrackY, trackWidth, TargetHudLayout.sliderTrackHeight, yawSlider, activeSlider == ActiveSlider.YAW)
+        drawPreviewSlider(context, trackX, pitchTrackY, trackWidth, TargetHudLayout.sliderTrackHeight, pitchSlider, activeSlider == ActiveSlider.PITCH)
+        drawPreviewSlider(context, trackX, zoomTrackY, trackWidth, TargetHudLayout.sliderTrackHeight, zoomSlider, activeSlider == ActiveSlider.ZOOM)
     }
 
     private fun drawPreviewSlider(
@@ -422,42 +521,38 @@ internal class TargetHudRenderer {
         width: Int,
         height: Int,
         value: Float,
+        active: Boolean,
     ) {
-        drawRoundedPanel(
+        SdfPanelRenderer.draw(
             context = context,
             x = x,
             y = y,
             width = width,
             height = height,
-            fillColor = Style.sliderTrack,
-            borderColor = Style.sliderTrackBorder,
-            radius = 3,
+            style = Style.sliderTrack(active),
         )
 
         val filledWidth = (width * value.coerceIn(0f, 1f)).roundToInt().coerceAtLeast(1)
-        fillRoundedRect(
+        SdfPanelRenderer.draw(
             context = context,
             x = x + 1,
             y = y + 1,
             width = (filledWidth - 2).coerceAtLeast(1),
             height = (height - 2).coerceAtLeast(1),
-            radius = 2,
-            color = Style.sliderFill,
+            style = Style.sliderFill(),
         )
 
         val knobSize = 8
         val knobCenterX = (x + (width * value.coerceIn(0f, 1f))).roundToInt().coerceIn(x + 4, x + width - 4)
         val knobX = knobCenterX - knobSize / 2
         val knobY = y + (height - knobSize) / 2
-        drawRoundedPanel(
+        SdfPanelRenderer.draw(
             context = context,
             x = knobX,
             y = knobY,
             width = knobSize,
             height = knobSize,
-            fillColor = Style.sliderKnob,
-            borderColor = Style.sliderKnobBorder,
-            radius = 4,
+            style = Style.sliderKnob(active),
         )
     }
 
@@ -580,15 +675,13 @@ internal class TargetHudRenderer {
         y: Int,
         size: Int,
     ) {
-        drawRoundedPanel(
+        SdfPanelRenderer.draw(
             context = context,
             x = x,
             y = y,
             width = size,
             height = size,
-            fillColor = Style.slotFill,
-            borderColor = Style.slotBorder,
-            radius = 6,
+            style = Style.slot(!stack.isEmpty),
         )
         if (stack.isEmpty) return
 
@@ -636,61 +729,4 @@ private fun fitText(font: Font, source: String, maxWidth: Int): String {
     }
 
     return ""
-}
-
-private fun drawRoundedPanel(
-    context: GuiGraphics,
-    x: Int,
-    y: Int,
-    width: Int,
-    height: Int,
-    fillColor: Int,
-    borderColor: Int,
-    radius: Int,
-) {
-    if (width <= 0 || height <= 0) return
-    val cornerRadius = radius.coerceIn(0, min(width, height) / 2)
-    fillRoundedRect(context, x, y, width, height, cornerRadius, borderColor)
-    if (width > 2 && height > 2) {
-        fillRoundedRect(
-            context,
-            x + 1,
-            y + 1,
-            width - 2,
-            height - 2,
-            (cornerRadius - 1).coerceAtLeast(0),
-            fillColor,
-        )
-    }
-}
-
-private fun fillRoundedRect(
-    context: GuiGraphics,
-    x: Int,
-    y: Int,
-    width: Int,
-    height: Int,
-    radius: Int,
-    color: Int,
-) {
-    if (width <= 0 || height <= 0) return
-
-    if (radius <= 0) {
-        context.fill(x, y, x + width, y + height, color)
-        return
-    }
-
-    val cornerRadius = radius.coerceIn(0, min(width, height) / 2)
-    context.fill(x + cornerRadius, y, x + width - cornerRadius, y + height, color)
-    context.fill(x, y + cornerRadius, x + cornerRadius, y + height - cornerRadius, color)
-    context.fill(x + width - cornerRadius, y + cornerRadius, x + width, y + height - cornerRadius, color)
-
-    for (row in 0 until cornerRadius) {
-        val dy = cornerRadius - row - 1
-        val dx = sqrt((cornerRadius * cornerRadius - dy * dy).toDouble()).toInt().coerceAtMost(cornerRadius)
-        val left = x + cornerRadius - dx
-        val right = x + width - cornerRadius + dx
-        context.fill(left, y + row, right, y + row + 1, color)
-        context.fill(left, y + height - row - 1, right, y + height - row, color)
-    }
 }

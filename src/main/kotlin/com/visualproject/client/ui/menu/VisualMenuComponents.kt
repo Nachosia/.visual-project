@@ -6,6 +6,7 @@ import com.daqem.uilib.gui.component.text.TextComponent
 import com.daqem.uilib.gui.component.text.TruncatedTextComponent
 import com.daqem.uilib.gui.widget.EditBoxWidget
 import com.visualproject.client.ModuleStateStore
+import com.visualproject.client.VisualClientMod
 import com.visualproject.client.VisualMenuDock
 import com.visualproject.client.VisualMenuModuleEntry
 import com.visualproject.client.vText
@@ -17,6 +18,7 @@ import net.minecraft.client.gui.components.AbstractWidget
 import net.minecraft.client.gui.narration.NarrationElementOutput
 import net.minecraft.client.input.MouseButtonEvent
 import net.minecraft.network.chat.Component
+import java.util.Locale
 import kotlin.math.abs
 
 internal class DecorativeComponent(
@@ -237,37 +239,74 @@ internal class ModuleSettingsPanelComponent(
     width: Int,
     module: VisualMenuModuleEntry,
     onSettingChanged: (String, Boolean) -> Unit,
-) : AbstractComponent(VisualMenuTheme.moduleRowsSideInset, 0, width, VisualMenuTheme.settingsHeight) {
+    onNumberChanged: (String, Float) -> Unit,
+    onTextChanged: (String, String) -> Unit,
+) : AbstractComponent(VisualMenuTheme.moduleRowsSideInset, 0, width, computeSettingsPanelHeight(module)) {
+
+    private sealed class SettingRow(val key: String, val label: String, val rowHeight: Int) {
+        class Toggle(key: String, label: String) : SettingRow(key, label, 24)
+
+        class Input(
+            key: String,
+            label: String,
+            val hint: String,
+        ) : SettingRow(key, label, 42)
+    }
 
     init {
         val title = TruncatedTextComponent(10, 10, width - 24, vText("Settings - ${module.title}"), VisualMenuTheme.textSecondary)
         title.setDrawShadow(false)
         addComponent(title)
 
-        val firstLabel = TextComponent(10, 40, vText("Visible In HUD"), VisualMenuTheme.textMuted)
-        firstLabel.setDrawShadow(false)
-        addComponent(firstLabel)
+        var currentY = 40
+        settingsForModule(module).forEach { setting ->
+            when (setting) {
+                is SettingRow.Toggle -> {
+                    val label = TextComponent(10, currentY + 4, vText(setting.label), VisualMenuTheme.textMuted)
+                    label.setDrawShadow(false)
+                    addComponent(label)
 
-        val secondLabel = TextComponent(10, 64, vText("Accent Sync"), VisualMenuTheme.textMuted)
-        secondLabel.setDrawShadow(false)
-        addComponent(secondLabel)
+                    addWidget(
+                        InlineSwitchWidget(
+                            x = width - 42,
+                            y = currentY,
+                            initialValue = ModuleStateStore.isSettingEnabled(setting.key),
+                            onToggle = { onSettingChanged(setting.key, it) },
+                        )
+                    )
+                }
 
-        addWidget(
-            InlineSwitchWidget(
-                x = width - 42,
-                y = 36,
-                initialValue = ModuleStateStore.isSettingEnabled("${module.id}:visible_hud"),
-                onToggle = { onSettingChanged("${module.id}:visible_hud", it) },
-            )
-        )
-        addWidget(
-            InlineSwitchWidget(
-                x = width - 42,
-                y = 60,
-                initialValue = ModuleStateStore.isSettingEnabled("${module.id}:accent_sync"),
-                onToggle = { onSettingChanged("${module.id}:accent_sync", it) },
-            )
-        )
+                is SettingRow.Input -> {
+                    addComponent(
+                        SettingInputFieldComponent(
+                            x = 10,
+                            y = currentY,
+                            width = width - 20,
+                            label = setting.label,
+                            initialValue = initialInputValue(setting),
+                            hint = setting.hint,
+                            onChanged = { raw ->
+                                when (setting.key) {
+                                    "watermark:outer_glow_strength" -> normalizeFloat(raw, 0f, 1.25f)?.let {
+                                        onNumberChanged(setting.key, it)
+                                    }
+
+                                    "watermark:outer_glow_distance" -> normalizeFloat(raw, 0f, 64f)?.let {
+                                        onNumberChanged(setting.key, it)
+                                    }
+
+                                    "watermark:outer_glow_color" -> normalizeHexColor(raw)?.let {
+                                        onTextChanged(setting.key, it)
+                                    }
+                                }
+                            },
+                        )
+                    )
+                }
+            }
+
+            currentY += setting.rowHeight
+        }
     }
 
     override fun render(context: GuiGraphics, mouseX: Int, mouseY: Int, partialTick: Float, parentWidth: Int, parentHeight: Int) {
@@ -280,6 +319,109 @@ internal class ModuleSettingsPanelComponent(
             VisualMenuTheme.settingsFill,
             VisualMenuTheme.settingsBorder,
             VisualMenuTheme.settingsRadius,
+        )
+    }
+
+    companion object {
+        private fun settingsForModule(module: VisualMenuModuleEntry): List<SettingRow> {
+            val rows = mutableListOf<SettingRow>(
+                SettingRow.Toggle("${module.id}:visible_hud", "Visible In HUD"),
+                SettingRow.Toggle("${module.id}:accent_sync", "Accent Sync"),
+            )
+            if (module.id == "watermark" || module.id == VisualClientMod.sdfTestModuleId) {
+                rows += SettingRow.Toggle("${module.id}:outer_glow", "Outer Glow")
+            }
+            if (module.id == "watermark") {
+                rows += SettingRow.Input("watermark:outer_glow_strength", "Glow Strength", "0.00 - 1.25")
+                rows += SettingRow.Input("watermark:outer_glow_distance", "Glow Distance", "0 - 64")
+                rows += SettingRow.Input("watermark:outer_glow_color", "Glow Color", "#RRGGBB")
+            }
+            return rows
+        }
+
+        private fun computeSettingsPanelHeight(module: VisualMenuModuleEntry): Int {
+            return 44 + settingsForModule(module).sumOf { it.rowHeight }
+        }
+
+        private fun initialInputValue(setting: SettingRow.Input): String {
+            return when (setting.key) {
+                "watermark:outer_glow_strength" -> formatFloat(ModuleStateStore.getNumberSetting(setting.key, 0.60f))
+                "watermark:outer_glow_distance" -> formatFloat(ModuleStateStore.getNumberSetting(setting.key, 22f))
+                "watermark:outer_glow_color" -> ModuleStateStore.getTextSetting(setting.key, "#6170D8")
+                else -> ""
+            }
+        }
+
+        private fun formatFloat(value: Float): String {
+            return if (value == value.toInt().toFloat()) {
+                value.toInt().toString()
+            } else {
+                String.format(Locale.US, "%.2f", value)
+            }
+        }
+
+        private fun normalizeFloat(raw: String, min: Float, max: Float): Float? {
+            val parsed = raw.trim().replace(',', '.').toFloatOrNull() ?: return null
+            return parsed.coerceIn(min, max)
+        }
+
+        private fun normalizeHexColor(raw: String): String? {
+            val compact = raw.trim().removePrefix("#")
+            if (compact.length != 6 && compact.length != 8) return null
+            if (!compact.all { it.isDigit() || it.lowercaseChar() in 'a'..'f' }) return null
+            return "#${compact.uppercase()}"
+        }
+    }
+}
+
+internal class SettingInputFieldComponent(
+    x: Int,
+    y: Int,
+    width: Int,
+    private val label: String,
+    initialValue: String,
+    hint: String,
+    onChanged: (String) -> Unit,
+) : AbstractComponent(x, y, width, 38) {
+
+    private val input = EditBoxWidget(
+        Minecraft.getInstance().font,
+        9,
+        18,
+        width - 18,
+        18,
+        Component.empty(),
+    )
+
+    init {
+        input.setBordered(false)
+        input.setTextColor(0xFFDEE5FF.toInt())
+        input.setTextColorUneditable(0xFF7E88A6.toInt())
+        input.setHint(vText(hint))
+        input.setValue(initialValue)
+        input.setResponder { value -> onChanged(value.trim()) }
+        addWidget(input)
+    }
+
+    override fun render(context: GuiGraphics, mouseX: Int, mouseY: Int, partialTick: Float, parentWidth: Int, parentHeight: Int) {
+        context.drawString(
+            Minecraft.getInstance().font,
+            vText(label),
+            totalX,
+            totalY + 2,
+            VisualMenuTheme.textMuted,
+            false,
+        )
+
+        drawRoundedPanel(
+            context,
+            totalX,
+            totalY + 16,
+            width,
+            20,
+            VisualMenuTheme.settingInputFill,
+            VisualMenuTheme.settingInputBorder,
+            10,
         )
     }
 }

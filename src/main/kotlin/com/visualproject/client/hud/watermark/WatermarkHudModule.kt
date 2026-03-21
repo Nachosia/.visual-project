@@ -14,6 +14,10 @@ object WatermarkHudModule {
 
     fun initialize() {
         ModuleStateStore.ensureModule(watermarkModuleId, defaultEnabled = false)
+        ModuleStateStore.ensureSetting("${watermarkModuleId}:outer_glow", defaultValue = true)
+        ModuleStateStore.ensureNumberSetting("${watermarkModuleId}:outer_glow_strength", defaultValue = 0.60f)
+        ModuleStateStore.ensureNumberSetting("${watermarkModuleId}:outer_glow_distance", defaultValue = 22f)
+        ModuleStateStore.ensureTextSetting("${watermarkModuleId}:outer_glow_color", defaultValue = "#6170D8")
 
         HudRenderCallback.EVENT.register(HudRenderCallback { context, deltaTracker ->
             if (!ModuleStateStore.isEnabled(watermarkModuleId)) return@HudRenderCallback
