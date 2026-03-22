@@ -285,21 +285,7 @@ internal class ModuleSettingsPanelComponent(
                             label = setting.label,
                             initialValue = initialInputValue(setting),
                             hint = setting.hint,
-                            onChanged = { raw ->
-                                when (setting.key) {
-                                    "watermark:outer_glow_strength" -> normalizeFloat(raw, 0f, 1.25f)?.let {
-                                        onNumberChanged(setting.key, it)
-                                    }
-
-                                    "watermark:outer_glow_distance" -> normalizeFloat(raw, 0f, 64f)?.let {
-                                        onNumberChanged(setting.key, it)
-                                    }
-
-                                    "watermark:outer_glow_color" -> normalizeHexColor(raw)?.let {
-                                        onTextChanged(setting.key, it)
-                                    }
-                                }
-                            },
+                            onChanged = { _ -> },
                         )
                     )
                 }
@@ -328,13 +314,8 @@ internal class ModuleSettingsPanelComponent(
                 SettingRow.Toggle("${module.id}:visible_hud", "Visible In HUD"),
                 SettingRow.Toggle("${module.id}:accent_sync", "Accent Sync"),
             )
-            if (module.id == "watermark" || module.id == VisualClientMod.sdfTestModuleId) {
+            if (module.id == VisualClientMod.sdfTestModuleId) {
                 rows += SettingRow.Toggle("${module.id}:outer_glow", "Outer Glow")
-            }
-            if (module.id == "watermark") {
-                rows += SettingRow.Input("watermark:outer_glow_strength", "Glow Strength", "0.00 - 1.25")
-                rows += SettingRow.Input("watermark:outer_glow_distance", "Glow Distance", "0 - 64")
-                rows += SettingRow.Input("watermark:outer_glow_color", "Glow Color", "#RRGGBB")
             }
             return rows
         }
@@ -344,12 +325,7 @@ internal class ModuleSettingsPanelComponent(
         }
 
         private fun initialInputValue(setting: SettingRow.Input): String {
-            return when (setting.key) {
-                "watermark:outer_glow_strength" -> formatFloat(ModuleStateStore.getNumberSetting(setting.key, 0.60f))
-                "watermark:outer_glow_distance" -> formatFloat(ModuleStateStore.getNumberSetting(setting.key, 22f))
-                "watermark:outer_glow_color" -> ModuleStateStore.getTextSetting(setting.key, "#6170D8")
-                else -> ""
-            }
+            return ""
         }
 
         private fun formatFloat(value: Float): String {
