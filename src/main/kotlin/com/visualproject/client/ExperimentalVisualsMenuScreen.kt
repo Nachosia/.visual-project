@@ -1,5 +1,6 @@
 package com.visualproject.client
 
+import com.mojang.blaze3d.platform.NativeImage
 import com.visualproject.client.render.sdf.SdfGlowStyle
 import com.visualproject.client.render.sdf.SdfNeonBorderStyle
 import com.visualproject.client.render.sdf.SdfPanelRenderer
@@ -11,13 +12,25 @@ import com.visualproject.client.ui.menu.drawRoundedPanel
 import com.visualproject.client.ui.menu.drawVerticalGradient
 import com.visualproject.client.ui.menu.fillRoundedRect
 import com.visualproject.client.ui.menu.fitStyledText
+import net.minecraft.client.Minecraft
 import net.minecraft.client.gui.GuiGraphics
 import net.minecraft.client.gui.components.EditBox
 import net.minecraft.client.gui.screens.Screen
 import net.minecraft.client.input.MouseButtonEvent
+import net.minecraft.client.renderer.RenderPipelines
+import net.minecraft.client.renderer.texture.DynamicTexture
 import net.minecraft.network.chat.Component
+import net.minecraft.resources.Identifier
+import java.awt.Color
+import java.awt.image.BufferedImage
+import java.io.ByteArrayInputStream
+import java.io.ByteArrayOutputStream
+import javax.imageio.ImageIO
 import kotlin.math.ceil
+import kotlin.math.max
 import kotlin.math.min
+import kotlin.math.roundToInt
+import kotlin.math.sqrt
 
 class ExperimentalVisualsMenuScreen : Screen(Component.empty()) {
 
@@ -40,6 +53,13 @@ class ExperimentalVisualsMenuScreen : Screen(Component.empty()) {
         val cardsViewport: IntRect,
         val settings: IntRect,
         val footer: IntRect,
+    )
+
+    private data class ThemePickerLayout(
+        val bounds: IntRect,
+        val wheelRect: IntRect,
+        val squareRect: IntRect,
+        val previewRect: IntRect,
     )
 
     private data class TabLayout(
@@ -97,6 +117,11 @@ class ExperimentalVisualsMenuScreen : Screen(Component.empty()) {
         const val sectionRadius = 22f
     }
 
+    private enum class PickerDragMode {
+        HUE_WHEEL,
+        SATURATION_VALUE,
+    }
+
     private val modules = listOf(
         VisualMenuModuleEntry("animations", "Animations", "A", VisualMenuTab.VISUALS),
         VisualMenuModuleEntry("aspect_ratio", "Aspect Ratio", "R", VisualMenuTab.VISUALS),
@@ -151,24 +176,32 @@ class ExperimentalVisualsMenuScreen : Screen(Component.empty()) {
     private var selectedModuleId: String? = null
     private var cardScroll = 0
     private var settingScroll = 0
+    private var activeThemeColorKey: String? = null
+    private var pickerDragMode: PickerDragMode? = null
+    private var pickerHue = 0f
+    private var pickerSaturation = 1f
+    private var pickerValue = 1f
+    private var pickerSquareHue = -1f
+    private var hueWheelTextureReady = false
 
     private lateinit var searchBox: EditBox
     private val settingInputs = LinkedHashMap<String, EditBox>()
+    private val hueWheelTextureId = Identifier.fromNamespaceAndPath("visualclient", "theme_picker_wheel")
+    private val saturationValueTextureId = Identifier.fromNamespaceAndPath("visualclient", "theme_picker_square")
 
     init {
         modules.forEach { module ->
             ModuleStateStore.ensureModule(module.id, defaultEnabled = false)
             ModuleStateStore.ensureSetting("${module.id}:visible_hud", defaultValue = false)
             ModuleStateStore.ensureSetting("${module.id}:accent_sync", defaultValue = true)
-            if (module.id == "watermark" || module.id == VisualClientMod.sdfTestModuleId) {
+            if (module.id == "armor_hud") {
+                ModuleStateStore.ensureSetting("${module.id}:slot_background", defaultValue = true)
+            }
+            if (module.id == VisualClientMod.sdfTestModuleId) {
                 ModuleStateStore.ensureSetting("${module.id}:outer_glow", defaultValue = true)
             }
-            if (module.id == "watermark") {
-                ModuleStateStore.ensureNumberSetting("${module.id}:outer_glow_strength", defaultValue = 0.60f)
-                ModuleStateStore.ensureNumberSetting("${module.id}:outer_glow_distance", defaultValue = 22f)
-                ModuleStateStore.ensureTextSetting("${module.id}:outer_glow_color", defaultValue = "#6170D8")
-            }
         }
+        VisualThemeSettings.initializeDefaults()
     }
 
     override fun init() {
@@ -201,7 +234,11 @@ class ExperimentalVisualsMenuScreen : Screen(Component.empty()) {
 
         drawHeader(context, layout)
         drawTabs(context, layout, mouseX.toDouble(), mouseY.toDouble())
-        drawCards(context, layout, filtered, mouseX.toDouble(), mouseY.toDouble())
+        if (activeTab == VisualMenuTab.THEME) {
+            drawThemePreview(context, layout)
+        } else {
+            drawCards(context, layout, filtered, mouseX.toDouble(), mouseY.toDouble())
+        }
         drawSettings(context, layout, mouseX.toDouble(), mouseY.toDouble())
         drawFooter(context, layout)
 
@@ -213,29 +250,70 @@ class ExperimentalVisualsMenuScreen : Screen(Component.empty()) {
         )
         super.render(context, mouseX, mouseY, partialTick)
         context.disableScissor()
+
+        if (activeThemeColorKey != null && activeTab == VisualMenuTab.THEME) {
+            drawThemeColorPicker(context, layout, mouseX.toDouble(), mouseY.toDouble())
+        }
     }
 
     override fun mouseClicked(mouseButtonEvent: MouseButtonEvent, doubled: Boolean): Boolean {
         val mouseX = mouseButtonEvent.x()
         val mouseY = mouseButtonEvent.y()
         if (mouseButtonEvent.button() == 0) {
-            tabLayouts(computeLayout()).firstOrNull { it.rect.contains(mouseX, mouseY) }?.let { clicked ->
+            val layout = computeLayout()
+
+            if (activeTab == VisualMenuTab.THEME) {
+                settingInputRows(layout).firstOrNull { row ->
+                    themeColorSwatchRect(row)?.contains(mouseX, mouseY) == true
+                }?.let { row ->
+                    openThemeColorPicker(row.key)
+                    return true
+                }
+            }
+
+            themePickerLayout(layout)?.let { picker ->
+                when {
+                    picker.squareRect.contains(mouseX, mouseY) -> {
+                        pickerDragMode = PickerDragMode.SATURATION_VALUE
+                        updatePickerSaturationValue(mouseX, mouseY, picker)
+                        return true
+                    }
+
+                    picker.wheelRect.contains(mouseX, mouseY) -> {
+                        pickerDragMode = PickerDragMode.HUE_WHEEL
+                        updatePickerHue(mouseX, mouseY, picker)
+                        return true
+                    }
+
+                    picker.bounds.contains(mouseX, mouseY) -> {
+                        return true
+                    }
+
+                    else -> {
+                        closeThemeColorPicker()
+                        return true
+                    }
+                }
+            }
+
+            tabLayouts(layout).firstOrNull { it.rect.contains(mouseX, mouseY) }?.let { clicked ->
                 if (activeTab != clicked.tab) {
                     activeTab = clicked.tab
                     cardScroll = 0
                     settingScroll = 0
+                    closeThemeColorPicker()
                     syncSelectedModule(forceSelectFirst = true)
                     rebuildMenuWidgets()
                 }
                 return true
             }
 
-            settingToggleRows(computeLayout()).firstOrNull { it.rect.contains(mouseX, mouseY) }?.let { row ->
+            settingToggleRows(layout).firstOrNull { it.rect.contains(mouseX, mouseY) }?.let { row ->
                 ModuleStateStore.setSettingEnabled(row.key, !ModuleStateStore.isSettingEnabled(row.key))
                 return true
             }
 
-            cardLayouts(computeLayout(), filteredModules()).firstOrNull { it.rect.contains(mouseX, mouseY) }?.let { card ->
+            cardLayouts(layout, filteredModules()).firstOrNull { it.rect.contains(mouseX, mouseY) }?.let { card ->
                 if (card.toggleRect.contains(mouseX, mouseY)) {
                     ModuleStateStore.toggleEnabled(card.module.id)
                 } else {
@@ -252,6 +330,11 @@ class ExperimentalVisualsMenuScreen : Screen(Component.empty()) {
 
     override fun mouseScrolled(mouseX: Double, mouseY: Double, scrollX: Double, scrollY: Double): Boolean {
         val layout = computeLayout()
+        themePickerLayout(layout)?.let { picker ->
+            if (picker.bounds.contains(mouseX, mouseY)) {
+                return true
+            }
+        }
         if (settingsViewport(layout).contains(mouseX, mouseY)) {
             val maxScroll = maxSettingScroll(layout)
             if (maxScroll > 0) {
@@ -293,12 +376,13 @@ class ExperimentalVisualsMenuScreen : Screen(Component.empty()) {
         addRenderableWidget(searchBox)
 
         settingInputRows(layout).forEach { row ->
+            val textRect = inputTextRect(row)
             val input = EditBox(
                 font,
-                row.fieldRect.x + 8,
-                row.fieldRect.y + 2,
-                row.fieldRect.width - 16,
-                row.fieldRect.height - 4,
+                textRect.x + 8,
+                textRect.y + 2,
+                textRect.width - 16,
+                textRect.height - 4,
                 Component.empty(),
             )
             input.setBordered(false)
@@ -308,15 +392,10 @@ class ExperimentalVisualsMenuScreen : Screen(Component.empty()) {
             input.setValue(settingValueFor(row.key))
             input.setResponder { raw ->
                 when (row.key) {
-                    "watermark:outer_glow_strength" -> normalizeFloat(raw, 0f, 1.25f)?.let {
-                        ModuleStateStore.setNumberSetting(row.key, it)
-                    }
-
-                    "watermark:outer_glow_distance" -> normalizeFloat(raw, 0f, 64f)?.let {
-                        ModuleStateStore.setNumberSetting(row.key, it)
-                    }
-
-                    "watermark:outer_glow_color" -> normalizeHexColor(raw)?.let {
+                    VisualThemeSettings.accentColorKey,
+                    VisualThemeSettings.neonBorderColorKey,
+                    VisualThemeSettings.sliderFillColorKey,
+                    VisualThemeSettings.sliderKnobColorKey -> normalizeHexColor(raw)?.let {
                         ModuleStateStore.setTextSetting(row.key, it)
                     }
                 }
@@ -374,27 +453,40 @@ class ExperimentalVisualsMenuScreen : Screen(Component.empty()) {
         context.drawString(font, vBrandText("Visual Client"), layout.header.x + 18, layout.header.y + 14, 0xFFF3F5FF.toInt(), false)
         context.drawString(font, vText("SDF prototype"), layout.header.x + 18, layout.header.y + 28, 0xFF8692B4.toInt(), false)
 
-        drawRoundedPanel(
-            context,
-            layout.search.x,
-            layout.search.y,
-            layout.search.width,
-            layout.search.height,
-            0xD011192A.toInt(),
-            0x523E4D74,
-            14,
-        )
+        if (activeTab != VisualMenuTab.THEME) {
+            drawRoundedPanel(
+                context,
+                layout.search.x,
+                layout.search.y,
+                layout.search.width,
+                layout.search.height,
+                0xD011192A.toInt(),
+                0x523E4D74,
+                14,
+            )
 
-        val counter = "${filteredModules().size} modules"
-        val counterWidth = font.width(vText(counter))
-        context.drawString(
-            font,
-            vText(counter),
-            layout.search.x - counterWidth - 12,
-            layout.search.y + 9,
-            0xFF7380A1.toInt(),
-            false,
-        )
+            val counter = "${filteredModules().size} modules"
+            val counterWidth = font.width(vText(counter))
+            context.drawString(
+                font,
+                vText(counter),
+                layout.search.x - counterWidth - 12,
+                layout.search.y + 9,
+                0xFF7380A1.toInt(),
+                false,
+            )
+        } else {
+            val counter = "Theme editor"
+            val counterWidth = font.width(vText(counter))
+            context.drawString(
+                font,
+                vText(counter),
+                layout.header.x + layout.header.width - counterWidth - 22,
+                layout.header.y + 18,
+                0xFF7380A1.toInt(),
+                false,
+            )
+        }
     }
 
     private fun drawTabs(context: GuiGraphics, layout: ScreenLayout, mouseX: Double, mouseY: Double) {
@@ -491,6 +583,48 @@ class ExperimentalVisualsMenuScreen : Screen(Component.empty()) {
     }
 
     private fun drawSettings(context: GuiGraphics, layout: ScreenLayout, mouseX: Double, mouseY: Double) {
+        if (activeTab == VisualMenuTab.THEME) {
+            context.drawString(font, vText("Settings"), layout.settings.x + 16, layout.settings.y + 14, 0xFF7683A5.toInt(), false)
+            context.drawString(font, vText("Theme"), layout.settings.x + 16, layout.settings.y + 28, 0xFFF4F6FF.toInt(), false)
+
+            val viewport = settingsViewport(layout)
+            context.enableScissor(
+                viewport.x,
+                viewport.y,
+                viewport.x + viewport.width,
+                viewport.y + viewport.height,
+            )
+            settingRows(layout).forEach { row ->
+                val rowStyle = inputRowStyle()
+                SdfPanelRenderer.draw(
+                    context,
+                    row.rect.x,
+                    row.rect.y,
+                    row.rect.width,
+                    row.rect.height,
+                    rowStyle,
+                    SdfPanelRenderer.ClipRect(viewport.x, viewport.y, viewport.width, viewport.height),
+                )
+                context.drawString(font, vText(row.label), row.rect.x + 14, row.rect.y + 10, 0xFFD8DFF8.toInt(), false)
+                if (row is SettingRowLayout.Input) {
+                    val textRect = inputTextRect(row)
+                    drawRoundedPanel(
+                        context,
+                        textRect.x,
+                        textRect.y,
+                        textRect.width,
+                        textRect.height,
+                        0xCC10182A.toInt(),
+                        0x57384866,
+                        11,
+                    )
+                    drawThemeFieldSwatch(context, row)
+                }
+            }
+            context.disableScissor()
+            return
+        }
+
         val selectedModule = modules.firstOrNull { it.id == selectedModuleId }
         if (selectedModule == null) {
             context.drawString(font, vText("No module selected"), layout.settings.x + 16, layout.settings.y + 16, 0xFF7E88A8.toInt(), false)
@@ -524,20 +658,168 @@ class ExperimentalVisualsMenuScreen : Screen(Component.empty()) {
                     val clipRect = SdfPanelRenderer.ClipRect(viewport.x, viewport.y, viewport.width, viewport.height)
                     SdfPanelRenderer.draw(context, row.rect.x, row.rect.y, row.rect.width, row.rect.height, rowStyle, clipRect)
                     context.drawString(font, vText(row.label), row.rect.x + 14, row.rect.y + 10, 0xFFD8DFF8.toInt(), false)
+                    val textRect = inputTextRect(row)
                     drawRoundedPanel(
                         context,
-                        row.fieldRect.x,
-                        row.fieldRect.y,
-                        row.fieldRect.width,
-                        row.fieldRect.height,
+                        textRect.x,
+                        textRect.y,
+                        textRect.width,
+                        textRect.height,
                         0xCC10182A.toInt(),
                         0x57384866,
                         11,
                     )
+                    drawThemeFieldSwatch(context, row)
                 }
             }
         }
         context.disableScissor()
+    }
+
+    private fun drawThemePreview(context: GuiGraphics, layout: ScreenLayout) {
+        val viewport = layout.cardsViewport
+        context.enableScissor(
+            viewport.x,
+            viewport.y,
+            viewport.x + viewport.width,
+            viewport.y + viewport.height,
+        )
+
+        val previewX = viewport.x + 16
+        val previewY = viewport.y + 16
+        val previewWidth = viewport.width - 32
+        val previewHeight = viewport.height - 32
+        val previewClip = SdfPanelRenderer.ClipRect(viewport.x, viewport.y, viewport.width, viewport.height)
+
+        SdfPanelRenderer.draw(
+            context,
+            previewX,
+            previewY,
+            previewWidth,
+            previewHeight,
+            sectionStyle(),
+            previewClip,
+        )
+
+        context.drawString(font, vText("Theme Preview"), previewX + 18, previewY + 16, 0xFFF4F6FF.toInt(), false)
+        context.drawString(font, vText("Accent, neon and slider colors update live here"), previewX + 18, previewY + 30, 0xFF8290B1.toInt(), false)
+
+        val sampleCardY = previewY + 56
+        val sampleCardWidth = ((previewWidth - 52) / 2).coerceAtLeast(160)
+        val sampleCardHeight = 74
+        val leftCard = IntRect(previewX + 18, sampleCardY, sampleCardWidth, sampleCardHeight)
+        val rightCard = IntRect(leftCard.x + leftCard.width + 16, sampleCardY, sampleCardWidth, sampleCardHeight)
+
+        drawThemeSampleCard(context, leftCard, "Selected Card", "Uses accent + neon", enabled = true, selected = true, clipRect = previewClip)
+        drawThemeSampleCard(context, rightCard, "Default Card", "Neutral surface", enabled = false, selected = false, clipRect = previewClip)
+
+        val toggleRow = IntRect(previewX + 18, sampleCardY + sampleCardHeight + 18, previewWidth - 36, 36)
+        SdfPanelRenderer.draw(context, toggleRow.x, toggleRow.y, toggleRow.width, toggleRow.height, settingRowStyle(hovered = true), previewClip)
+        context.drawString(font, vText("Toggle Preview"), toggleRow.x + 14, toggleRow.y + 11, 0xFFD8DFF8.toInt(), false)
+        drawToggle(
+            context,
+            IntRect(toggleRow.x + toggleRow.width - 44, toggleRow.y + 8, 32, 18),
+            enabled = true,
+        )
+
+        val sliderTrackX = previewX + 30
+        val sliderTrackY = toggleRow.y + 58
+        val sliderTrackWidth = (previewWidth - 60).coerceAtLeast(140)
+        val sliderTrackHeight = 10
+        drawThemeSlider(context, sliderTrackX, sliderTrackY, sliderTrackWidth, sliderTrackHeight, 0.68f, previewClip)
+        context.drawString(font, vText("Slider Preview"), sliderTrackX, sliderTrackY - 14, 0xFFD8DFF8.toInt(), false)
+
+        context.disableScissor()
+    }
+
+    private fun drawThemeSampleCard(
+        context: GuiGraphics,
+        rect: IntRect,
+        title: String,
+        subtitle: String,
+        enabled: Boolean,
+        selected: Boolean,
+        clipRect: SdfPanelRenderer.ClipRect,
+    ) {
+        val backdrop = IntRect(rect.x - 6, rect.y - 6, rect.width + 12, rect.height + 12)
+        SdfPanelRenderer.draw(context, backdrop.x, backdrop.y, backdrop.width, backdrop.height, cardBackdropStyle(enabled, selected, hovered = false), clipRect)
+        SdfPanelRenderer.draw(context, rect.x, rect.y, rect.width, rect.height, cardSurfaceStyle(enabled, selected, hovered = false), clipRect)
+        drawRoundedPanel(context, rect.x + 14, rect.y + 14, 26, 26, 0xA2141E33.toInt(), 0x5B3E4A69, 10)
+        context.drawString(font, vText(if (selected) "T" else "N"), rect.x + 23, rect.y + 22, 0xFFD6DDF7.toInt(), false)
+        context.drawString(font, fitStyledText(font, title, rect.width - 116), rect.x + 50, rect.y + 16, 0xFFF4F6FF.toInt(), false)
+        context.drawString(font, fitStyledText(font, subtitle, rect.width - 116), rect.x + 50, rect.y + 31, 0xFF7E8BAE.toInt(), false)
+        drawToggle(context, IntRect(rect.x + rect.width - 48, rect.y + 28, 34, 18), enabled)
+    }
+
+    private fun drawThemeSlider(
+        context: GuiGraphics,
+        x: Int,
+        y: Int,
+        width: Int,
+        height: Int,
+        progress: Float,
+        clipRect: SdfPanelRenderer.ClipRect,
+    ) {
+        SdfPanelRenderer.draw(
+            context,
+            x,
+            y,
+            width,
+            height,
+            SdfPanelStyle(
+                baseColor = 0xB71A2335.toInt(),
+                borderColor = blendColor(0xFF3B4B67.toInt(), accentStrongColor(), 0.25f),
+                borderWidthPx = 1.0f,
+                radiusPx = (height / 2f),
+                innerGlow = SdfGlowStyle(0xFFFFFFFF.toInt(), radiusPx = 5f, strength = 0.02f, opacity = 0.02f),
+                outerGlow = SdfGlowStyle(accentStrongColor(), radiusPx = 8f, strength = 0.08f, opacity = 0.04f),
+                shade = SdfShadeStyle(0x08FFFFFF, 0x0E000000),
+                neonBorder = SdfNeonBorderStyle(VisualThemeSettings.withAlpha(neonBorderColor(), 0x54), widthPx = 0.8f, softnessPx = 3.5f, strength = 0.24f),
+            ),
+            clipRect,
+        )
+
+        val filledWidth = ((width - 2) * progress.coerceIn(0f, 1f)).toInt().coerceAtLeast(6)
+        SdfPanelRenderer.draw(
+            context,
+            x + 1,
+            y + 1,
+            filledWidth,
+            (height - 2).coerceAtLeast(1),
+            SdfPanelStyle(
+                baseColor = sliderFillColor(),
+                borderColor = blendColor(sliderFillColor(), 0xFFFFFFFF.toInt(), 0.18f),
+                borderWidthPx = 0.8f,
+                radiusPx = ((height - 2) / 2f),
+                innerGlow = SdfGlowStyle(0xFFFFFFFF.toInt(), radiusPx = 5f, strength = 0.05f, opacity = 0.04f),
+                outerGlow = SdfGlowStyle(sliderFillColor(), radiusPx = 8f, strength = 0.14f, opacity = 0.08f),
+                shade = SdfShadeStyle(0x10FFFFFF, 0x0A000000),
+                neonBorder = SdfNeonBorderStyle(VisualThemeSettings.withAlpha(neonBorderColor(), 0xD5), widthPx = 0.9f, softnessPx = 4f, strength = 0.54f),
+            ),
+            clipRect,
+        )
+
+        val knobSize = 12
+        val knobX = (x + (width * progress.coerceIn(0f, 1f))).toInt().coerceIn(x + knobSize / 2, x + width - knobSize / 2) - (knobSize / 2)
+        val knobY = y + (height - knobSize) / 2
+        SdfPanelRenderer.draw(
+            context,
+            knobX,
+            knobY,
+            knobSize,
+            knobSize,
+            SdfPanelStyle(
+                baseColor = sliderKnobColor(),
+                borderColor = blendColor(sliderKnobColor(), accentStrongColor(), 0.32f),
+                borderWidthPx = 1.0f,
+                radiusPx = 6f,
+                innerGlow = SdfGlowStyle(0xFFFFFFFF.toInt(), radiusPx = 6f, strength = 0.06f, opacity = 0.06f),
+                outerGlow = SdfGlowStyle(accentStrongColor(), radiusPx = 8f, strength = 0.16f, opacity = 0.12f),
+                shade = SdfShadeStyle(0x0EFFFFFF, 0x08000000),
+                neonBorder = SdfNeonBorderStyle(VisualThemeSettings.withAlpha(neonBorderColor(), 0xC8), widthPx = 0.9f, softnessPx = 4f, strength = 0.58f),
+            ),
+            clipRect,
+        )
     }
 
     private fun drawFooter(context: GuiGraphics, layout: ScreenLayout) {
@@ -581,7 +863,6 @@ class ExperimentalVisualsMenuScreen : Screen(Component.empty()) {
     }
 
     private fun settingRows(layout: ScreenLayout): List<SettingRowLayout> {
-        val selectedModule = modules.firstOrNull { it.id == selectedModuleId } ?: return emptyList()
         val rows = mutableListOf<SettingRowLayout>()
         val startX = layout.settings.x + 14
         val width = layout.settings.width - 28
@@ -601,16 +882,24 @@ class ExperimentalVisualsMenuScreen : Screen(Component.empty()) {
             currentY += Theme.inputRowHeight + 10
         }
 
+        if (activeTab == VisualMenuTab.THEME) {
+            addInput(VisualThemeSettings.accentColorKey, "Accent Glow", "#RRGGBB")
+            addInput(VisualThemeSettings.neonBorderColorKey, "Neon Border", "#RRGGBB")
+            addInput(VisualThemeSettings.sliderFillColorKey, "Slider Fill", "#RRGGBB")
+            addInput(VisualThemeSettings.sliderKnobColorKey, "Slider Knob", "#RRGGBB")
+            return rows
+        }
+
+        val selectedModule = modules.firstOrNull { it.id == selectedModuleId } ?: return emptyList()
+
         addToggle("${selectedModule.id}:visible_hud", "Visible In HUD")
         addToggle("${selectedModule.id}:accent_sync", "Accent Sync")
-
-        if (selectedModule.id == "watermark" || selectedModule.id == VisualClientMod.sdfTestModuleId) {
-            addToggle("${selectedModule.id}:outer_glow", "Outer Glow")
+        if (selectedModule.id == "armor_hud") {
+            addToggle("${selectedModule.id}:slot_background", "Slot Background")
         }
-        if (selectedModule.id == "watermark") {
-            addInput("watermark:outer_glow_strength", "Glow Strength", "0.00 - 1.25")
-            addInput("watermark:outer_glow_distance", "Glow Distance", "0 - 64")
-            addInput("watermark:outer_glow_color", "Glow Color", "#RRGGBB")
+
+        if (selectedModule.id == VisualClientMod.sdfTestModuleId) {
+            addToggle("${selectedModule.id}:outer_glow", "Outer Glow")
         }
 
         return rows
@@ -632,6 +921,10 @@ class ExperimentalVisualsMenuScreen : Screen(Component.empty()) {
     }
 
     private fun syncSelectedModule(forceSelectFirst: Boolean) {
+        if (activeTab == VisualMenuTab.THEME) {
+            selectedModuleId = null
+            return
+        }
         val filtered = filteredModules()
         if (filtered.isEmpty()) {
             selectedModuleId = null
@@ -681,8 +974,9 @@ class ExperimentalVisualsMenuScreen : Screen(Component.empty()) {
             searchBox.setY(layout.search.y)
             searchBox.setWidth(layout.search.width)
             searchBox.setHeight(layout.search.height)
-            searchBox.setVisible(true)
-            searchBox.active = true
+            val searchVisible = activeTab != VisualMenuTab.THEME
+            searchBox.setVisible(searchVisible)
+            searchBox.active = searchVisible
         }
 
         val viewport = settingsViewport(layout)
@@ -693,10 +987,11 @@ class ExperimentalVisualsMenuScreen : Screen(Component.empty()) {
                 input.setVisible(false)
                 input.active = false
             } else {
-                input.setX(row.fieldRect.x + 8)
-                input.setY(row.fieldRect.y + 2)
-                input.setWidth(row.fieldRect.width - 16)
-                input.setHeight(row.fieldRect.height - 4)
+                val textRect = inputTextRect(row)
+                input.setX(textRect.x + 8)
+                input.setY(textRect.y + 2)
+                input.setWidth(textRect.width - 16)
+                input.setHeight(textRect.height - 4)
 
                 val visible = row.fieldRect.y >= viewport.y &&
                     row.fieldRect.y + row.fieldRect.height <= viewport.y + viewport.height
@@ -718,11 +1013,252 @@ class ExperimentalVisualsMenuScreen : Screen(Component.empty()) {
 
     private fun settingValueFor(key: String): String {
         return when (key) {
-            "watermark:outer_glow_strength" -> formatNumber(ModuleStateStore.getNumberSetting(key, 0.60f))
-            "watermark:outer_glow_distance" -> formatNumber(ModuleStateStore.getNumberSetting(key, 22f))
-            "watermark:outer_glow_color" -> ModuleStateStore.getTextSetting(key, "#6170D8")
+            VisualThemeSettings.accentColorKey -> ModuleStateStore.getTextSetting(key, "#8A71FF")
+            VisualThemeSettings.neonBorderColorKey -> ModuleStateStore.getTextSetting(key, "#8A71FF")
+            VisualThemeSettings.sliderFillColorKey -> ModuleStateStore.getTextSetting(key, "#8A71FF")
+            VisualThemeSettings.sliderKnobColorKey -> ModuleStateStore.getTextSetting(key, "#F0F2FF")
             else -> ""
         }
+    }
+
+    private fun isThemeColorKey(key: String): Boolean {
+        return key == VisualThemeSettings.accentColorKey ||
+            key == VisualThemeSettings.neonBorderColorKey ||
+            key == VisualThemeSettings.sliderFillColorKey ||
+            key == VisualThemeSettings.sliderKnobColorKey
+    }
+
+    private fun themeColorSwatchRect(row: SettingRowLayout.Input): IntRect? {
+        if (!isThemeColorKey(row.key)) return null
+        return IntRect(row.fieldRect.x + 6, row.fieldRect.y + 2, 18, row.fieldRect.height - 4)
+    }
+
+    private fun inputTextRect(row: SettingRowLayout.Input): IntRect {
+        val swatch = themeColorSwatchRect(row) ?: return row.fieldRect
+        return IntRect(
+            swatch.x + swatch.width + 8,
+            row.fieldRect.y,
+            (row.fieldRect.x + row.fieldRect.width) - (swatch.x + swatch.width + 8),
+            row.fieldRect.height,
+        )
+    }
+
+    private fun drawThemeFieldSwatch(context: GuiGraphics, row: SettingRowLayout.Input) {
+        val swatch = themeColorSwatchRect(row) ?: return
+        val color = currentThemeColorForKey(row.key)
+        val border = if (activeThemeColorKey == row.key) accentStrongColor() else blendColor(0xFF3B4D6D.toInt(), color, 0.35f)
+        drawRoundedPanel(context, swatch.x, swatch.y, swatch.width, swatch.height, 0xDD0F1727.toInt(), border, 7)
+        fillRoundedRect(context, swatch.x + 3, swatch.y + 3, swatch.width - 6, swatch.height - 6, 4, color)
+    }
+
+    private fun themePickerLayout(layout: ScreenLayout): ThemePickerLayout? {
+        if (activeThemeColorKey == null || activeTab != VisualMenuTab.THEME) return null
+        val bounds = IntRect(
+            layout.panel.x + (layout.panel.width - 252) / 2,
+            layout.panel.y + (layout.panel.height - 212) / 2,
+            252,
+            212,
+        )
+        val wheelRect = IntRect(bounds.x + 18, bounds.y + 44, 120, 120)
+        val squareRect = IntRect(bounds.x + 48, bounds.y + 74, 60, 60)
+        val previewRect = IntRect(bounds.x + 156, bounds.y + 58, 72, 72)
+        return ThemePickerLayout(bounds, wheelRect, squareRect, previewRect)
+    }
+
+    private fun openThemeColorPicker(key: String) {
+        activeThemeColorKey = key
+        pickerDragMode = null
+        val current = currentThemeColorForKey(key)
+        val hsb = FloatArray(3)
+        Color.RGBtoHSB((current shr 16) and 0xFF, (current shr 8) and 0xFF, current and 0xFF, hsb)
+        pickerHue = hsb[0]
+        pickerSaturation = hsb[1]
+        pickerValue = hsb[2]
+        pickerSquareHue = -1f
+    }
+
+    private fun closeThemeColorPicker() {
+        activeThemeColorKey = null
+        pickerDragMode = null
+    }
+
+    private fun updatePickerHue(mouseX: Double, mouseY: Double, layout: ThemePickerLayout) {
+        val centerX = layout.wheelRect.x + (layout.wheelRect.width / 2f)
+        val centerY = layout.wheelRect.y + (layout.wheelRect.height / 2f)
+        val dx = (mouseX - centerX).toFloat()
+        val dy = (mouseY - centerY).toFloat()
+        val angle = kotlin.math.atan2(dy, dx)
+        pickerHue = ((angle / (kotlin.math.PI.toFloat() * 2f)) + 1f).mod(1f)
+        applyPickerColor()
+    }
+
+    private fun updatePickerSaturationValue(mouseX: Double, mouseY: Double, layout: ThemePickerLayout) {
+        val localX = ((mouseX - layout.squareRect.x) / layout.squareRect.width.toDouble()).toFloat().coerceIn(0f, 1f)
+        val localY = ((mouseY - layout.squareRect.y) / layout.squareRect.height.toDouble()).toFloat().coerceIn(0f, 1f)
+        pickerSaturation = localX
+        pickerValue = 1f - localY
+        applyPickerColor()
+    }
+
+    private fun applyPickerColor() {
+        val key = activeThemeColorKey ?: return
+        val rgb = Color.HSBtoRGB(pickerHue.coerceIn(0f, 1f), pickerSaturation.coerceIn(0f, 1f), pickerValue.coerceIn(0f, 1f))
+        val normalized = "#%06X".format(java.util.Locale.US, rgb and 0x00FFFFFF)
+        ModuleStateStore.setTextSetting(key, normalized)
+        settingInputs[key]?.setValue(normalized)
+    }
+
+    private fun currentThemeColorForKey(key: String): Int {
+        return when (key) {
+            VisualThemeSettings.accentColorKey -> accentStrongColor()
+            VisualThemeSettings.neonBorderColorKey -> neonBorderColor()
+            VisualThemeSettings.sliderFillColorKey -> sliderFillColor()
+            VisualThemeSettings.sliderKnobColorKey -> sliderKnobColor()
+            else -> 0xFFFFFFFF.toInt()
+        }
+    }
+
+    private fun drawThemeColorPicker(context: GuiGraphics, layout: ScreenLayout, mouseX: Double, mouseY: Double) {
+        val picker = themePickerLayout(layout) ?: return
+        ensureThemePickerTextures()
+
+        context.fill(
+            layout.panel.x,
+            layout.panel.y,
+            layout.panel.x + layout.panel.width,
+            layout.panel.y + layout.panel.height,
+            0x66000000,
+        )
+        SdfPanelRenderer.draw(context, picker.bounds.x, picker.bounds.y, picker.bounds.width, picker.bounds.height, settingsStyle())
+
+        val label = when (activeThemeColorKey) {
+            VisualThemeSettings.accentColorKey -> "Accent Glow"
+            VisualThemeSettings.neonBorderColorKey -> "Neon Border"
+            VisualThemeSettings.sliderFillColorKey -> "Slider Fill"
+            VisualThemeSettings.sliderKnobColorKey -> "Slider Knob"
+            else -> "Theme Color"
+        }
+        context.drawString(font, vText(label), picker.bounds.x + 18, picker.bounds.y + 16, 0xFFF4F6FF.toInt(), false)
+        context.drawString(font, vText("Click the ring for hue and the square for tone"), picker.bounds.x + 18, picker.bounds.y + 30, 0xFF7F8CB0.toInt(), false)
+
+        blitTexture(context, hueWheelTextureId, picker.wheelRect)
+        blitTexture(context, saturationValueTextureId, picker.squareRect)
+
+        val centerX = picker.wheelRect.x + (picker.wheelRect.width / 2f)
+        val centerY = picker.wheelRect.y + (picker.wheelRect.height / 2f)
+        val indicatorRadius = 45f
+        val angle = pickerHue * (kotlin.math.PI.toFloat() * 2f)
+        val hueIndicatorX = (centerX + kotlin.math.cos(angle) * indicatorRadius).roundToInt()
+        val hueIndicatorY = (centerY + kotlin.math.sin(angle) * indicatorRadius).roundToInt()
+        drawRoundedPanel(context, hueIndicatorX - 5, hueIndicatorY - 5, 10, 10, 0xFFF2F4FF.toInt(), accentStrongColor(), 5)
+
+        val squareIndicatorX = (picker.squareRect.x + (picker.squareRect.width * pickerSaturation)).roundToInt().coerceIn(picker.squareRect.x + 4, picker.squareRect.x + picker.squareRect.width - 4)
+        val squareIndicatorY = (picker.squareRect.y + (picker.squareRect.height * (1f - pickerValue))).roundToInt().coerceIn(picker.squareRect.y + 4, picker.squareRect.y + picker.squareRect.height - 4)
+        drawRoundedPanel(context, squareIndicatorX - 4, squareIndicatorY - 4, 8, 8, 0xFFF2F4FF.toInt(), 0xFF111827.toInt(), 4)
+
+        val currentColor = currentThemeColorForKey(activeThemeColorKey ?: return)
+        SdfPanelRenderer.draw(
+            context,
+            picker.previewRect.x,
+            picker.previewRect.y,
+            picker.previewRect.width,
+            picker.previewRect.height,
+            SdfPanelStyle(
+                baseColor = 0xFF111A2D.toInt(),
+                borderColor = blendColor(0xFF33415F.toInt(), currentColor, 0.30f),
+                borderWidthPx = 1f,
+                radiusPx = 16f,
+                innerGlow = SdfGlowStyle(0xFFFFFFFF.toInt(), radiusPx = 8f, strength = 0.02f, opacity = 0.02f),
+                outerGlow = SdfGlowStyle(currentColor, radiusPx = 16f, strength = 0.12f, opacity = 0.08f),
+                shade = SdfShadeStyle(0x0EFFFFFF, 0x14000000),
+                neonBorder = SdfNeonBorderStyle(VisualThemeSettings.withAlpha(neonBorderColor(), 0x84), widthPx = 0.9f, softnessPx = 4f, strength = 0.34f),
+            ),
+        )
+        fillRoundedRect(context, picker.previewRect.x + 12, picker.previewRect.y + 12, picker.previewRect.width - 24, picker.previewRect.height - 24, 14, currentColor)
+        context.drawString(font, vText(settingValueFor(activeThemeColorKey ?: "")), picker.previewRect.x - 2, picker.previewRect.y + picker.previewRect.height + 12, 0xFFD8DFF8.toInt(), false)
+
+        val closeHovered = picker.bounds.contains(mouseX, mouseY).not()
+        context.drawString(font, vText(if (closeHovered) "Click outside to close" else "Release mouse to finish"), picker.bounds.x + 18, picker.bounds.y + picker.bounds.height - 18, 0xFF7A86A6.toInt(), false)
+    }
+
+    private fun ensureThemePickerTextures() {
+        val client = Minecraft.getInstance()
+        if (!hueWheelTextureReady) {
+            client.textureManager.register(
+                hueWheelTextureId,
+                DynamicTexture({ "visualclient-theme-picker-wheel" }, createHueWheelImage(120)),
+            )
+            hueWheelTextureReady = true
+        }
+
+        if (kotlin.math.abs(pickerSquareHue - pickerHue) > 0.001f) {
+            client.textureManager.register(
+                saturationValueTextureId,
+                DynamicTexture({ "visualclient-theme-picker-square" }, createSaturationValueImage(60, pickerHue)),
+            )
+            pickerSquareHue = pickerHue
+        }
+    }
+
+    private fun createHueWheelImage(size: Int): NativeImage {
+        val image = BufferedImage(size, size, BufferedImage.TYPE_INT_ARGB)
+        val center = (size - 1) / 2f
+        val outerRadius = (size / 2f) - 3f
+        val innerRadius = outerRadius - 18f
+        for (y in 0 until size) {
+            for (x in 0 until size) {
+                val dx = x - center
+                val dy = y - center
+                val distance = sqrt((dx * dx) + (dy * dy))
+                if (distance < innerRadius || distance > outerRadius) {
+                    image.setRGB(x, y, 0x00000000)
+                } else {
+                    val hue = ((kotlin.math.atan2(dy, dx) / (kotlin.math.PI.toFloat() * 2f)) + 1f).mod(1f)
+                    val color = Color.HSBtoRGB(hue, 1f, 1f) or (0xFF shl 24)
+                    image.setRGB(x, y, color)
+                }
+            }
+        }
+        return nativeImageFromBuffered(image)
+    }
+
+    private fun createSaturationValueImage(size: Int, hue: Float): NativeImage {
+        val image = BufferedImage(size, size, BufferedImage.TYPE_INT_ARGB)
+        for (y in 0 until size) {
+            val value = 1f - (y / (size - 1).toFloat())
+            for (x in 0 until size) {
+                val saturation = x / (size - 1).toFloat()
+                val color = Color.HSBtoRGB(hue, saturation, value) or (0xFF shl 24)
+                image.setRGB(x, y, color)
+            }
+        }
+        return nativeImageFromBuffered(image)
+    }
+
+    private fun nativeImageFromBuffered(image: BufferedImage): NativeImage {
+        val output = ByteArrayOutputStream()
+        ImageIO.write(image, "png", output)
+        return ByteArrayInputStream(output.toByteArray()).use { input ->
+            NativeImage.read(input)
+        }
+    }
+
+    private fun blitTexture(context: GuiGraphics, texture: Identifier, rect: IntRect) {
+        context.blit(
+            RenderPipelines.GUI_TEXTURED,
+            texture,
+            rect.x,
+            rect.y,
+            0f,
+            0f,
+            rect.width,
+            rect.height,
+            rect.width,
+            rect.height,
+            rect.width,
+            rect.height,
+            0xFFFFFFFF.toInt(),
+        )
     }
 
     private fun formatNumber(value: Float): String {
@@ -745,6 +1281,16 @@ class ExperimentalVisualsMenuScreen : Screen(Component.empty()) {
         return "#${compact.uppercase()}"
     }
 
+    private fun accentStrongColor(): Int = VisualThemeSettings.accentStrong()
+
+    private fun accentColor(): Int = VisualThemeSettings.accent()
+
+    private fun neonBorderColor(): Int = VisualThemeSettings.neonBorder()
+
+    private fun sliderFillColor(): Int = VisualThemeSettings.sliderFill()
+
+    private fun sliderKnobColor(): Int = VisualThemeSettings.sliderKnob()
+
     private fun shellStyle(): SdfPanelStyle {
         return SdfPanelStyle(
             baseColor = 0xFB0B111B.toInt(),
@@ -752,9 +1298,9 @@ class ExperimentalVisualsMenuScreen : Screen(Component.empty()) {
             borderWidthPx = 1.5f,
             radiusPx = 30f,
             innerGlow = SdfGlowStyle(0xFFFFFFFF.toInt(), radiusPx = 20f, strength = 0.08f, opacity = 0.06f),
-            outerGlow = SdfGlowStyle(VisualMenuTheme.accentStrong, radiusPx = 44f, strength = 0.22f, opacity = 0.14f),
+            outerGlow = SdfGlowStyle(accentStrongColor(), radiusPx = 44f, strength = 0.22f, opacity = 0.14f),
             shade = SdfShadeStyle(0x1AFFFFFF, 0x22000000),
-            neonBorder = SdfNeonBorderStyle(0xB28A71FF.toInt(), widthPx = 1.25f, softnessPx = 10f, strength = 0.90f),
+            neonBorder = SdfNeonBorderStyle(VisualThemeSettings.withAlpha(neonBorderColor(), 0xB2), widthPx = 1.25f, softnessPx = 10f, strength = 0.90f),
         )
     }
 
@@ -764,10 +1310,10 @@ class ExperimentalVisualsMenuScreen : Screen(Component.empty()) {
             borderColor = 0xA13A4A69.toInt(),
             borderWidthPx = 1.2f,
             radiusPx = Theme.sectionRadius,
-            innerGlow = SdfGlowStyle(VisualMenuTheme.accentStrong, radiusPx = 16f, strength = 0.04f, opacity = 0.05f),
+            innerGlow = SdfGlowStyle(accentStrongColor(), radiusPx = 16f, strength = 0.04f, opacity = 0.05f),
             outerGlow = SdfGlowStyle(0xFF000000.toInt(), radiusPx = 18f, strength = 0.16f, opacity = 0.24f),
             shade = SdfShadeStyle(0x10FFFFFF, 0x12000000),
-            neonBorder = SdfNeonBorderStyle(0x5E6079FF, widthPx = 0.95f, softnessPx = 5f, strength = 0.42f),
+            neonBorder = SdfNeonBorderStyle(VisualThemeSettings.withAlpha(neonBorderColor(), 0x5E), widthPx = 0.95f, softnessPx = 5f, strength = 0.42f),
         )
     }
 
@@ -780,7 +1326,7 @@ class ExperimentalVisualsMenuScreen : Screen(Component.empty()) {
             innerGlow = SdfGlowStyle(0xFFFFFFFF.toInt(), radiusPx = 10f, strength = 0.03f, opacity = 0.03f),
             outerGlow = SdfGlowStyle(0xFF000000.toInt(), radiusPx = 18f, strength = 0.15f, opacity = 0.18f),
             shade = SdfShadeStyle(0x10FFFFFF, 0x10000000),
-            neonBorder = SdfNeonBorderStyle(0x4A5F78FF, widthPx = 0.9f, softnessPx = 4.5f, strength = 0.34f),
+            neonBorder = SdfNeonBorderStyle(VisualThemeSettings.withAlpha(neonBorderColor(), 0x4A), widthPx = 0.9f, softnessPx = 4.5f, strength = 0.34f),
         )
     }
 
@@ -791,9 +1337,9 @@ class ExperimentalVisualsMenuScreen : Screen(Component.empty()) {
             borderWidthPx = 1f,
             radiusPx = Theme.sectionRadius,
             innerGlow = SdfGlowStyle(0xFFFFFFFF.toInt(), radiusPx = 8f, strength = 0.02f, opacity = 0.02f),
-            outerGlow = SdfGlowStyle(VisualMenuTheme.accent, radiusPx = 18f, strength = 0.10f, opacity = 0.06f),
+            outerGlow = SdfGlowStyle(accentColor(), radiusPx = 18f, strength = 0.10f, opacity = 0.06f),
             shade = SdfShadeStyle(0x0BFFFFFF, 0x12000000),
-            neonBorder = SdfNeonBorderStyle(0x3E546EFF, widthPx = 0.9f, softnessPx = 4f, strength = 0.28f),
+            neonBorder = SdfNeonBorderStyle(VisualThemeSettings.withAlpha(neonBorderColor(), 0x3E), widthPx = 0.9f, softnessPx = 4f, strength = 0.28f),
         )
     }
 
@@ -803,17 +1349,17 @@ class ExperimentalVisualsMenuScreen : Screen(Component.empty()) {
             borderColor = 0xA13A4A69.toInt(),
             borderWidthPx = 1.2f,
             radiusPx = Theme.sectionRadius,
-            innerGlow = SdfGlowStyle(VisualMenuTheme.accentStrong, radiusPx = 12f, strength = 0.05f, opacity = 0.04f),
-            outerGlow = SdfGlowStyle(VisualMenuTheme.accentStrong, radiusPx = 24f, strength = 0.14f, opacity = 0.08f),
+            innerGlow = SdfGlowStyle(accentStrongColor(), radiusPx = 12f, strength = 0.05f, opacity = 0.04f),
+            outerGlow = SdfGlowStyle(accentStrongColor(), radiusPx = 24f, strength = 0.14f, opacity = 0.08f),
             shade = SdfShadeStyle(0x10FFFFFF, 0x14000000),
-            neonBorder = SdfNeonBorderStyle(0x666A79FF, widthPx = 1.0f, softnessPx = 5f, strength = 0.42f),
+            neonBorder = SdfNeonBorderStyle(VisualThemeSettings.withAlpha(neonBorderColor(), 0x66), widthPx = 1.0f, softnessPx = 5f, strength = 0.42f),
         )
     }
 
     private fun tabStyle(selected: Boolean, hovered: Boolean): SdfPanelStyle {
         val border = when {
-            selected -> VisualMenuTheme.accentStrong
-            hovered -> 0xFF536691.toInt()
+            selected -> accentStrongColor()
+            hovered -> blendColor(0xFF536691.toInt(), accentStrongColor(), 0.35f)
             else -> 0xFF2E3B55.toInt()
         }
         val fill = when {
@@ -832,20 +1378,20 @@ class ExperimentalVisualsMenuScreen : Screen(Component.empty()) {
             borderWidthPx = 1.2f,
             radiusPx = 16f,
             innerGlow = SdfGlowStyle(
-                color = if (selected) VisualMenuTheme.accentStrong else 0xFFFFFFFF.toInt(),
+                color = if (selected) accentStrongColor() else 0xFFFFFFFF.toInt(),
                 radiusPx = 12f,
                 strength = if (selected) 0.10f else 0.03f,
                 opacity = if (selected) 0.08f else 0.02f,
             ),
             outerGlow = SdfGlowStyle(
-                color = if (selected) VisualMenuTheme.accentStrong else 0xFF000000.toInt(),
+                color = if (selected) accentStrongColor() else 0xFF000000.toInt(),
                 radiusPx = 18f,
                 strength = if (selected) 0.22f else 0.12f,
                 opacity = glowOpacity,
             ),
             shade = SdfShadeStyle(0x0EFFFFFF, 0x14000000),
             neonBorder = SdfNeonBorderStyle(
-                color = if (selected) 0xC08A71FF.toInt() else if (hovered) 0x545C79CC else 0x00000000,
+                color = if (selected) VisualThemeSettings.withAlpha(neonBorderColor(), 0xC0) else if (hovered) VisualThemeSettings.withAlpha(neonBorderColor(), 0x54) else 0x00000000,
                 widthPx = if (selected) 1.1f else 0.9f,
                 softnessPx = if (selected) 6f else 4f,
                 strength = if (selected) 0.82f else if (hovered) 0.30f else 0f,
@@ -867,7 +1413,7 @@ class ExperimentalVisualsMenuScreen : Screen(Component.empty()) {
             radiusPx = 22f,
             innerGlow = SdfGlowStyle(0x00000000, radiusPx = 0f, strength = 0f, opacity = 0f),
             outerGlow = SdfGlowStyle(
-                color = if (enabled || selected) VisualMenuTheme.accentStrong else 0xFF324869.toInt(),
+                color = if (enabled || selected) accentStrongColor() else 0xFF324869.toInt(),
                 radiusPx = 34f,
                 strength = 0.26f + (0.14f * emphasis),
                 opacity = 0.06f + (0.10f * emphasis),
@@ -884,8 +1430,8 @@ class ExperimentalVisualsMenuScreen : Screen(Component.empty()) {
             else -> 0xFF101829.toInt()
         }
         val border = when {
-            selected -> VisualMenuTheme.accentStrong
-            enabled -> 0xFF536B9E.toInt()
+            selected -> accentStrongColor()
+            enabled -> blendColor(0xFF536B9E.toInt(), accentStrongColor(), 0.45f)
             hovered -> 0xFF415474.toInt()
             else -> 0xFF2C3953.toInt()
         }
@@ -896,7 +1442,7 @@ class ExperimentalVisualsMenuScreen : Screen(Component.empty()) {
             radiusPx = 18f,
             innerGlow = if (enabled) {
                 SdfGlowStyle(
-                    color = VisualMenuTheme.accentStrong,
+                    color = accentStrongColor(),
                     radiusPx = 14f,
                     strength = 0.12f,
                     opacity = if (selected) 0.16f else 0.11f,
@@ -910,7 +1456,7 @@ class ExperimentalVisualsMenuScreen : Screen(Component.empty()) {
                 )
             },
             outerGlow = SdfGlowStyle(
-                color = if (selected) VisualMenuTheme.accentStrong else 0xFF000000.toInt(),
+                color = if (selected) accentStrongColor() else 0xFF000000.toInt(),
                 radiusPx = 14f,
                 strength = 0.10f,
                 opacity = if (selected) 0.06f else 0.02f,
@@ -918,9 +1464,9 @@ class ExperimentalVisualsMenuScreen : Screen(Component.empty()) {
             shade = SdfShadeStyle(0x12FFFFFF, 0x16000000),
             neonBorder = SdfNeonBorderStyle(
                 color = when {
-                    selected -> 0xCC8A71FF.toInt()
-                    enabled -> 0x8C7285FF.toInt()
-                    hovered -> 0x444F6DC8
+                    selected -> VisualThemeSettings.withAlpha(neonBorderColor(), 0xCC)
+                    enabled -> VisualThemeSettings.withAlpha(neonBorderColor(), 0x8C)
+                    hovered -> VisualThemeSettings.withAlpha(neonBorderColor(), 0x44)
                     else -> 0x00000000
                 },
                 widthPx = when {
@@ -948,14 +1494,14 @@ class ExperimentalVisualsMenuScreen : Screen(Component.empty()) {
     private fun settingRowStyle(hovered: Boolean): SdfPanelStyle {
         return SdfPanelStyle(
             baseColor = if (hovered) 0xFF152138.toInt() else 0xFF111A2D.toInt(),
-            borderColor = if (hovered) 0xFF4B5D85.toInt() else 0xFF33415F.toInt(),
+            borderColor = if (hovered) blendColor(0xFF4B5D85.toInt(), accentStrongColor(), 0.25f) else 0xFF33415F.toInt(),
             borderWidthPx = 1f,
             radiusPx = 14f,
             innerGlow = SdfGlowStyle(0xFFFFFFFF.toInt(), radiusPx = 8f, strength = 0.02f, opacity = 0.02f),
-            outerGlow = SdfGlowStyle(VisualMenuTheme.accentStrong, radiusPx = 18f, strength = 0.12f, opacity = if (hovered) 0.07f else 0.04f),
+            outerGlow = SdfGlowStyle(accentStrongColor(), radiusPx = 18f, strength = 0.12f, opacity = if (hovered) 0.07f else 0.04f),
             shade = SdfShadeStyle(0x0EFFFFFF, 0x14000000),
             neonBorder = SdfNeonBorderStyle(
-                color = if (hovered) 0x885E71FF.toInt() else 0x30566CC4,
+                color = if (hovered) VisualThemeSettings.withAlpha(neonBorderColor(), 0x88) else VisualThemeSettings.withAlpha(neonBorderColor(), 0x30),
                 widthPx = if (hovered) 1.0f else 0.8f,
                 softnessPx = if (hovered) 5f else 4f,
                 strength = if (hovered) 0.54f else 0.28f,
@@ -970,15 +1516,15 @@ class ExperimentalVisualsMenuScreen : Screen(Component.empty()) {
             borderWidthPx = 1f,
             radiusPx = 14f,
             innerGlow = SdfGlowStyle(0xFFFFFFFF.toInt(), radiusPx = 8f, strength = 0.02f, opacity = 0.02f),
-            outerGlow = SdfGlowStyle(VisualMenuTheme.accentStrong, radiusPx = 18f, strength = 0.10f, opacity = 0.05f),
+            outerGlow = SdfGlowStyle(accentStrongColor(), radiusPx = 18f, strength = 0.10f, opacity = 0.05f),
             shade = SdfShadeStyle(0x0EFFFFFF, 0x14000000),
-            neonBorder = SdfNeonBorderStyle(0x425D72D1, widthPx = 0.9f, softnessPx = 4.5f, strength = 0.30f),
+            neonBorder = SdfNeonBorderStyle(VisualThemeSettings.withAlpha(neonBorderColor(), 0x42), widthPx = 0.9f, softnessPx = 4.5f, strength = 0.30f),
         )
     }
 
     private fun drawToggle(context: GuiGraphics, rect: IntRect, enabled: Boolean) {
-        val trackFill = if (enabled) 0xCC5E4FBE.toInt() else 0xAA1A2436.toInt()
-        val trackBorder = if (enabled) VisualMenuTheme.accentStrong else 0x7A3E4C68
+        val trackFill = if (enabled) VisualThemeSettings.withAlpha(sliderFillColor(), 0xCC) else 0xAA1A2436.toInt()
+        val trackBorder = if (enabled) accentStrongColor() else 0x7A3E4C68
         drawRoundedPanel(context, rect.x, rect.y, rect.width, rect.height, trackFill, trackBorder, rect.height / 2)
 
         val knobRadius = ((rect.height - 6) / 2).coerceAtLeast(4)
@@ -993,7 +1539,7 @@ class ExperimentalVisualsMenuScreen : Screen(Component.empty()) {
                 knobRadius * 2 + 2,
                 knobRadius * 2 + 2,
                 knobRadius + 1,
-                0x6A8F7CFF,
+                VisualThemeSettings.withAlpha(accentStrongColor(), 0x6A),
             )
         }
         drawRoundedPanel(
@@ -1002,13 +1548,38 @@ class ExperimentalVisualsMenuScreen : Screen(Component.empty()) {
             knobCenterY - knobRadius,
             knobRadius * 2,
             knobRadius * 2,
-            0xFFF2F4FF.toInt(),
-            0x9AC8D5F6.toInt(),
+            sliderKnobColor(),
+            blendColor(sliderKnobColor(), accentStrongColor(), 0.28f),
             knobRadius,
         )
     }
 
     override fun mouseDragged(mouseButtonEvent: MouseButtonEvent, dragX: Double, dragY: Double): Boolean {
+        val layout = computeLayout()
+        val picker = themePickerLayout(layout)
+        if (mouseButtonEvent.button() == 0 && picker != null) {
+            when (pickerDragMode) {
+                PickerDragMode.HUE_WHEEL -> {
+                    updatePickerHue(mouseButtonEvent.x(), mouseButtonEvent.y(), picker)
+                    return true
+                }
+
+                PickerDragMode.SATURATION_VALUE -> {
+                    updatePickerSaturationValue(mouseButtonEvent.x(), mouseButtonEvent.y(), picker)
+                    return true
+                }
+
+                null -> Unit
+            }
+        }
         return super.mouseDragged(mouseButtonEvent, dragX, dragY)
+    }
+
+    override fun mouseReleased(mouseButtonEvent: MouseButtonEvent): Boolean {
+        if (mouseButtonEvent.button() == 0 && pickerDragMode != null) {
+            pickerDragMode = null
+            return true
+        }
+        return super.mouseReleased(mouseButtonEvent)
     }
 }
