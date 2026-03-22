@@ -2,7 +2,9 @@ package com.visualproject.client.hud.watermark
 
 import com.mojang.blaze3d.platform.NativeImage
 import com.visualproject.client.ModuleStateStore
+import com.visualproject.client.VisualThemeSettings
 import com.visualproject.client.render.sdf.SdfGlowStyle
+import com.visualproject.client.render.sdf.SdfNeonBorderStyle
 import com.visualproject.client.render.sdf.SdfPanelRenderer
 import com.visualproject.client.render.sdf.SdfPanelStyle
 import com.visualproject.client.render.sdf.SdfShadeStyle
@@ -652,20 +654,9 @@ class WatermarkHudRenderer(
     }
 
     private fun watermarkShellStyle(expansion: Float): SdfPanelStyle {
-        val outerGlowEnabled = ModuleStateStore.isSettingEnabled("${watermarkModuleId}:outer_glow")
         val accentSync = ModuleStateStore.isSettingEnabled("${watermarkModuleId}:accent_sync")
-        val configuredGlowStrength = ModuleStateStore.getNumberSetting("${watermarkModuleId}:outer_glow_strength", 0.60f)
-            .coerceIn(0f, 1.25f)
-        val configuredGlowDistance = ModuleStateStore.getNumberSetting("${watermarkModuleId}:outer_glow_distance", 22f)
-            .coerceIn(0f, 64f)
-        val glowColor = if (accentSync) {
-            WatermarkHudTheme.accent
-        } else {
-            parseGlowColor(ModuleStateStore.getTextSetting("${watermarkModuleId}:outer_glow_color", "#6170D8"))
-                ?: 0xFF6170D8.toInt()
-        }
-        val glowOpacityScale = (configuredGlowStrength / 0.60f).coerceIn(0f, 1.75f)
-        val glowOpacity = ((0.18f + (expansion * 0.08f)) * glowOpacityScale).coerceIn(0f, 0.52f)
+        val accentColor = if (accentSync) VisualThemeSettings.accentStrong() else WatermarkHudTheme.accent
+        val neonColor = if (accentSync) VisualThemeSettings.neonBorder() else WatermarkHudTheme.accent
 
         return SdfPanelStyle(
             baseColor = WatermarkHudTheme.panelFill,
@@ -678,35 +669,23 @@ class WatermarkHudRenderer(
                 strength = 0.12f,
                 opacity = 0.10f,
             ),
-            outerGlow = if (outerGlowEnabled) {
-                SdfGlowStyle(
-                    color = glowColor,
-                    radiusPx = configuredGlowDistance + (expansion * 10f),
-                    strength = configuredGlowStrength,
-                    opacity = glowOpacity,
-                )
-            } else {
-                SdfGlowStyle(
-                    color = glowColor,
-                    radiusPx = 0f,
-                    strength = 0f,
-                    opacity = 0f,
-                )
-            },
+            outerGlow = SdfGlowStyle(
+                color = accentColor,
+                radiusPx = 18f + (expansion * 8f),
+                strength = 0.18f,
+                opacity = 0.10f + (expansion * 0.05f),
+            ),
             shade = SdfShadeStyle(
                 topColor = 0x12FFFFFF,
                 bottomColor = 0x28000000,
             ),
+            neonBorder = SdfNeonBorderStyle(
+                color = VisualThemeSettings.withAlpha(neonColor, 0xC8),
+                widthPx = 1.05f,
+                softnessPx = 5.5f + (expansion * 1.5f),
+                strength = 0.76f,
+            ),
         )
-    }
-
-    private fun parseGlowColor(raw: String?): Int? {
-        val compact = raw?.trim()?.removePrefix("#") ?: return null
-        return when (compact.length) {
-            6 -> compact.toLongOrNull(16)?.toInt()?.let { 0xFF000000.toInt() or it }
-            8 -> compact.toLongOrNull(16)?.toInt()
-            else -> null
-        }
     }
 
     private fun watermarkExpandedInnerStyle(alpha: Float, radiusPx: Float): SdfPanelStyle {
@@ -730,6 +709,12 @@ class WatermarkHudRenderer(
             shade = SdfShadeStyle(
                 topColor = withAlpha(0x14FFFFFF, alpha),
                 bottomColor = withAlpha(0x14000000, alpha),
+            ),
+            neonBorder = SdfNeonBorderStyle(
+                color = VisualThemeSettings.withAlpha(VisualThemeSettings.neonBorder(), 0x52),
+                widthPx = 0.9f,
+                softnessPx = 4f,
+                strength = 0.30f,
             ),
         )
     }
