@@ -48,19 +48,25 @@ internal class ArmorHudRenderer {
 
     private var dragState: ArmorHudDragState? = null
     private var lastBounds: ArmorHudBounds? = null
+    private var lastScale = -1f
 
     fun render(context: GuiGraphics, client: Minecraft) {
         val player = client.player ?: return
         if (client.options.hideGui) return
         if (client.screen != null && client.screen !is ChatScreen) return
 
-        val state = ensureDragState(client)
+        val scale = hudScale()
+        val actualWidth = scaled(Layout.shellWidth, scale)
+        val actualHeight = scaled(Layout.shellHeight, scale)
+
+        val state = ensureDragState(client, actualWidth, actualHeight)
+        adjustPositionForScaleChange(client, state, Layout.shellWidth, Layout.shellHeight, scale)
         clampToScreen(client, state)
         val bounds = ArmorHudBounds(
             x = state.position.x,
             y = state.position.y,
-            width = Layout.shellWidth,
-            height = Layout.shellHeight,
+            width = actualWidth,
+            height = actualHeight,
         )
         lastBounds = bounds
 
@@ -69,12 +75,16 @@ internal class ArmorHudRenderer {
         val glowColor = if (accentSync) VisualThemeSettings.accentStrong() else 0xFF8A71FF.toInt()
         val neonColor = if (accentSync) VisualThemeSettings.neonBorder() else 0xFF8A71FF.toInt()
 
+        context.pose().pushMatrix()
+        context.pose().translate(bounds.x.toFloat(), bounds.y.toFloat())
+        context.pose().scale(scale, scale)
+
         SdfPanelRenderer.draw(
             context = context,
-            x = bounds.x,
-            y = bounds.y,
-            width = bounds.width,
-            height = bounds.height,
+            x = 0,
+            y = 0,
+            width = Layout.shellWidth,
+            height = Layout.shellHeight,
             style = shellStyle(glowColor, neonColor),
         )
 
@@ -86,16 +96,18 @@ internal class ArmorHudRenderer {
         )
 
         rows.forEachIndexed { index, row ->
-            val rowY = bounds.y + Layout.padding + (index * (Layout.rowHeight + Layout.rowGap))
+            val rowY = Layout.padding + (index * (Layout.rowHeight + Layout.rowGap))
             drawArmorRow(
                 context = context,
                 font = client.font,
                 row = row,
-                x = bounds.x + Layout.padding,
+                x = Layout.padding,
                 y = rowY,
                 slotBackgroundEnabled = slotBackgroundEnabled,
             )
         }
+
+        context.pose().popMatrix()
     }
 
     fun onScreenMouseClick(
@@ -107,14 +119,14 @@ internal class ArmorHudRenderer {
         if (screen !is ChatScreen) return consumed
         if (mouseEvent.button() != 0) return consumed
 
-        val state = ensureDragState(client)
+        val state = ensureDragState(client, scaled(Layout.shellWidth, hudScale()), scaled(Layout.shellHeight, hudScale()))
         clampToScreen(client, state)
 
         val bounds = lastBounds ?: ArmorHudBounds(
             x = state.position.x,
             y = state.position.y,
-            width = Layout.shellWidth,
-            height = Layout.shellHeight,
+            width = scaled(Layout.shellWidth, hudScale()),
+            height = scaled(Layout.shellHeight, hudScale()),
         )
         val handled = state.beginDrag(bounds, mouseEvent.x().toInt(), mouseEvent.y().toInt())
         return consumed || handled
@@ -131,7 +143,8 @@ internal class ArmorHudRenderer {
         if (screen !is ChatScreen) return consumed
         if (mouseEvent.button() != 0) return consumed
 
-        val state = ensureDragState(client)
+        val scale = hudScale()
+        val state = ensureDragState(client, scaled(Layout.shellWidth, scale), scaled(Layout.shellHeight, scale))
         if (!state.dragging) return consumed
 
         state.dragTo(
@@ -139,8 +152,8 @@ internal class ArmorHudRenderer {
             mouseY = mouseEvent.y().toInt(),
             screenWidth = client.window.guiScaledWidth,
             screenHeight = client.window.guiScaledHeight,
-            hudWidth = Layout.shellWidth,
-            hudHeight = Layout.shellHeight,
+            hudWidth = scaled(Layout.shellWidth, scale),
+            hudHeight = scaled(Layout.shellHeight, scale),
         )
         return true
     }
@@ -325,13 +338,13 @@ internal class ArmorHudRenderer {
         )
     }
 
-    private fun ensureDragState(client: Minecraft): ArmorHudDragState {
+    private fun ensureDragState(client: Minecraft, hudWidth: Int, hudHeight: Int): ArmorHudDragState {
         val existing = dragState
         if (existing != null) return existing
 
         val defaultPosition = ArmorHudPosition(
             x = Layout.anchorX,
-            y = ((client.window.guiScaledHeight - Layout.shellHeight) / 2).coerceAtLeast(12),
+            y = ((client.window.guiScaledHeight - hudHeight) / 2).coerceAtLeast(12),
         )
         return ArmorHudDragState(ArmorHudPositionStore.load(defaultPosition)).also {
             dragState = it
@@ -344,9 +357,51 @@ internal class ArmorHudRenderer {
             y = state.position.y,
             screenWidth = client.window.guiScaledWidth,
             screenHeight = client.window.guiScaledHeight,
-            hudWidth = Layout.shellWidth,
-            hudHeight = Layout.shellHeight,
+            hudWidth = scaled(Layout.shellWidth, hudScale()),
+            hudHeight = scaled(Layout.shellHeight, hudScale()),
         )
+    }
+
+    private fun adjustPositionForScaleChange(
+        client: Minecraft,
+        state: ArmorHudDragState,
+        baseWidth: Int,
+        baseHeight: Int,
+        scale: Float,
+    ) {
+        if (lastScale <= 0f) {
+            lastScale = scale
+            return
+        }
+        if (kotlin.math.abs(lastScale - scale) < 0.001f || state.dragging) {
+            lastScale = scale
+            return
+        }
+
+        val oldWidth = scaled(baseWidth, lastScale)
+        val oldHeight = scaled(baseHeight, lastScale)
+        val newWidth = scaled(baseWidth, scale)
+        val newHeight = scaled(baseHeight, scale)
+        val targetX = state.position.x - ((newWidth - oldWidth) / 2)
+        val targetY = state.position.y - ((newHeight - oldHeight) / 2)
+        state.setPositionClamped(
+            x = targetX,
+            y = targetY,
+            screenWidth = client.window.guiScaledWidth,
+            screenHeight = client.window.guiScaledHeight,
+            hudWidth = newWidth,
+            hudHeight = newHeight,
+        )
+        ArmorHudPositionStore.save(state.position)
+        lastScale = scale
+    }
+
+    private fun hudScale(): Float {
+        return ModuleStateStore.getNumberSetting("${moduleId}:size", 1.0f).coerceIn(0.5f, 3.0f)
+    }
+
+    private fun scaled(value: Int, scale: Float): Int {
+        return (value * scale).roundToInt().coerceAtLeast(1)
     }
 
 }

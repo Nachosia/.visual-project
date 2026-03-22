@@ -55,6 +55,7 @@ val stageNativeMediaBridge by tasks.registering(Copy::class) {
 }
 
 repositories {
+	mavenCentral()
 	maven("https://maven.daqem.com/releases")
 	maven("https://jitpack.io")
 	maven("https://api.modrinth.com/maven") {

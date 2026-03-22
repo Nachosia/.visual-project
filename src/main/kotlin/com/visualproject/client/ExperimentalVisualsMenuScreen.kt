@@ -92,6 +92,15 @@ class ExperimentalVisualsMenuScreen : Screen(Component.empty()) {
             val fieldRect: IntRect,
             val hint: String,
         ) : SettingRowLayout(key, label, rect)
+
+        class Slider(
+            key: String,
+            label: String,
+            rect: IntRect,
+            val trackRect: IntRect,
+            val min: Float,
+            val max: Float,
+        ) : SettingRowLayout(key, label, rect)
     }
 
     private object Theme {
@@ -148,16 +157,10 @@ class ExperimentalVisualsMenuScreen : Screen(Component.empty()) {
 
         VisualMenuModuleEntry("armor_hud", "Armor HUD", "A", VisualMenuTab.HUD),
         VisualMenuModuleEntry("cooldowns_hud", "Cooldowns HUD", "C", VisualMenuTab.HUD),
-        VisualMenuModuleEntry("effect_notify", "Effect Notify", "E", VisualMenuTab.HUD),
-        VisualMenuModuleEntry("hotkeys", "Hotkeys", "H", VisualMenuTab.HUD),
+        VisualMenuModuleEntry("effect_notify", "Notifications", "E", VisualMenuTab.HUD),
+        VisualMenuModuleEntry("gif_hud", "GIF", "G", VisualMenuTab.HUD),
         VisualMenuModuleEntry("potions", "Potions", "P", VisualMenuTab.HUD),
-        VisualMenuModuleEntry("direction", "Direction", "D", VisualMenuTab.HUD),
-        VisualMenuModuleEntry("fps", "FPS", "F", VisualMenuTab.HUD),
-        VisualMenuModuleEntry("keystrokes", "Key Strokes", "K", VisualMenuTab.HUD),
-        VisualMenuModuleEntry("potion_icons", "Potion Icons", "P", VisualMenuTab.HUD),
-        VisualMenuModuleEntry("radar", "Radar", "R", VisualMenuTab.HUD),
         VisualMenuModuleEntry(VisualClientMod.sdfTestModuleId, "SDF Test HUD", "Q", VisualMenuTab.HUD),
-        VisualMenuModuleEntry("session_time", "Session Time", "S", VisualMenuTab.HUD),
         VisualMenuModuleEntry("target_hud", "Target HUD", "T", VisualMenuTab.HUD),
         VisualMenuModuleEntry("watermark", "Watermark", "W", VisualMenuTab.HUD),
 
@@ -178,6 +181,7 @@ class ExperimentalVisualsMenuScreen : Screen(Component.empty()) {
     private var settingScroll = 0
     private var activeThemeColorKey: String? = null
     private var pickerDragMode: PickerDragMode? = null
+    private var activeSliderKey: String? = null
     private var pickerHue = 0f
     private var pickerSaturation = 1f
     private var pickerValue = 1f
@@ -194,8 +198,27 @@ class ExperimentalVisualsMenuScreen : Screen(Component.empty()) {
             ModuleStateStore.ensureModule(module.id, defaultEnabled = false)
             ModuleStateStore.ensureSetting("${module.id}:visible_hud", defaultValue = false)
             ModuleStateStore.ensureSetting("${module.id}:accent_sync", defaultValue = true)
+            if (module.tab == VisualMenuTab.HUD) {
+                val defaultSize = if (module.id == "gif_hud") {
+                    ModuleStateStore.getNumberSetting("${module.id}:scale", 1.0f)
+                } else {
+                    1.0f
+                }
+                ModuleStateStore.ensureNumberSetting("${module.id}:size", defaultSize)
+            }
             if (module.id == "armor_hud") {
                 ModuleStateStore.ensureSetting("${module.id}:slot_background", defaultValue = true)
+            }
+            if (module.id == "watermark") {
+                ModuleStateStore.ensureSetting("${module.id}:music_scan", defaultValue = true)
+            }
+            if (module.id == "gif_hud") {
+                ModuleStateStore.ensureSetting("${module.id}:chroma_key_enabled", defaultValue = true)
+                ModuleStateStore.ensureSetting("${module.id}:invert_colors", defaultValue = false)
+                ModuleStateStore.ensureTextSetting("${module.id}:file_name", "")
+                ModuleStateStore.ensureTextSetting("${module.id}:chroma_key_color", "#00FF00")
+                ModuleStateStore.ensureNumberSetting("${module.id}:chroma_key_strength", 0.18f)
+                ModuleStateStore.ensureNumberSetting("${module.id}:scale", 1.0f)
             }
             if (module.id == VisualClientMod.sdfTestModuleId) {
                 ModuleStateStore.ensureSetting("${module.id}:outer_glow", defaultValue = true)
@@ -251,7 +274,7 @@ class ExperimentalVisualsMenuScreen : Screen(Component.empty()) {
         super.render(context, mouseX, mouseY, partialTick)
         context.disableScissor()
 
-        if (activeThemeColorKey != null && activeTab == VisualMenuTab.THEME) {
+        if (activeThemeColorKey != null) {
             drawThemeColorPicker(context, layout, mouseX.toDouble(), mouseY.toDouble())
         }
     }
@@ -262,13 +285,11 @@ class ExperimentalVisualsMenuScreen : Screen(Component.empty()) {
         if (mouseButtonEvent.button() == 0) {
             val layout = computeLayout()
 
-            if (activeTab == VisualMenuTab.THEME) {
-                settingInputRows(layout).firstOrNull { row ->
-                    themeColorSwatchRect(row)?.contains(mouseX, mouseY) == true
-                }?.let { row ->
-                    openThemeColorPicker(row.key)
-                    return true
-                }
+            settingInputRows(layout).firstOrNull { row ->
+                themeColorSwatchRect(row)?.contains(mouseX, mouseY) == true
+            }?.let { row ->
+                openThemeColorPicker(row.key)
+                return true
             }
 
             themePickerLayout(layout)?.let { picker ->
@@ -310,6 +331,12 @@ class ExperimentalVisualsMenuScreen : Screen(Component.empty()) {
 
             settingToggleRows(layout).firstOrNull { it.rect.contains(mouseX, mouseY) }?.let { row ->
                 ModuleStateStore.setSettingEnabled(row.key, !ModuleStateStore.isSettingEnabled(row.key))
+                return true
+            }
+
+            settingSliderRows(layout).firstOrNull { it.rect.contains(mouseX, mouseY) }?.let { row ->
+                activeSliderKey = row.key
+                updateSliderValue(row, mouseX)
                 return true
             }
 
@@ -395,9 +422,13 @@ class ExperimentalVisualsMenuScreen : Screen(Component.empty()) {
                     VisualThemeSettings.accentColorKey,
                     VisualThemeSettings.neonBorderColorKey,
                     VisualThemeSettings.sliderFillColorKey,
-                    VisualThemeSettings.sliderKnobColorKey -> normalizeHexColor(raw)?.let {
+                    VisualThemeSettings.sliderKnobColorKey,
+                    "gif_hud:chroma_key_color" -> normalizeHexColor(raw)?.let {
                         ModuleStateStore.setTextSetting(row.key, it)
                     }
+
+                    "gif_hud:file_name" -> ModuleStateStore.setTextSetting(row.key, sanitizeFileName(raw))
+                    else -> ModuleStateStore.setTextSetting(row.key, raw.trim())
                 }
             }
             settingInputs[row.key] = input
@@ -671,6 +702,25 @@ class ExperimentalVisualsMenuScreen : Screen(Component.empty()) {
                     )
                     drawThemeFieldSwatch(context, row)
                 }
+
+                is SettingRowLayout.Slider -> {
+                    val rowStyle = inputRowStyle()
+                    val clipRect = SdfPanelRenderer.ClipRect(viewport.x, viewport.y, viewport.width, viewport.height)
+                    SdfPanelRenderer.draw(context, row.rect.x, row.rect.y, row.rect.width, row.rect.height, rowStyle, clipRect)
+                    context.drawString(font, vText(row.label), row.rect.x + 14, row.rect.y + 10, 0xFFD8DFF8.toInt(), false)
+                    val valueText = formatSliderValue(row.key, ModuleStateStore.getNumberSetting(row.key, row.min))
+                    val valueWidth = font.width(vText(valueText))
+                    context.drawString(font, vText(valueText), row.rect.x + row.rect.width - valueWidth - 14, row.rect.y + 10, 0xFF97A7CE.toInt(), false)
+                    drawThemeSlider(
+                        context,
+                        row.trackRect.x,
+                        row.trackRect.y,
+                        row.trackRect.width,
+                        row.trackRect.height,
+                        sliderProgress(row),
+                        clipRect,
+                    )
+                }
             }
         }
         context.disableScissor()
@@ -882,6 +932,13 @@ class ExperimentalVisualsMenuScreen : Screen(Component.empty()) {
             currentY += Theme.inputRowHeight + 10
         }
 
+        fun addSlider(key: String, label: String, min: Float, max: Float) {
+            val rect = IntRect(startX, currentY, width, Theme.inputRowHeight)
+            val trackRect = IntRect(rect.x + 14, rect.y + 26, rect.width - 28, 10)
+            rows += SettingRowLayout.Slider(key, label, rect, trackRect, min, max)
+            currentY += Theme.inputRowHeight + 10
+        }
+
         if (activeTab == VisualMenuTab.THEME) {
             addInput(VisualThemeSettings.accentColorKey, "Accent Glow", "#RRGGBB")
             addInput(VisualThemeSettings.neonBorderColorKey, "Neon Border", "#RRGGBB")
@@ -893,9 +950,24 @@ class ExperimentalVisualsMenuScreen : Screen(Component.empty()) {
         val selectedModule = modules.firstOrNull { it.id == selectedModuleId } ?: return emptyList()
 
         addToggle("${selectedModule.id}:visible_hud", "Visible In HUD")
-        addToggle("${selectedModule.id}:accent_sync", "Accent Sync")
+        if (selectedModule.tab == VisualMenuTab.HUD) {
+            addSlider("${selectedModule.id}:size", "Size", 0.5f, 3f)
+        }
+        if (selectedModule.id != "gif_hud") {
+            addToggle("${selectedModule.id}:accent_sync", "Accent Sync")
+        }
+        if (selectedModule.id == "watermark") {
+            addToggle("${selectedModule.id}:music_scan", "Music Scan")
+        }
         if (selectedModule.id == "armor_hud") {
             addToggle("${selectedModule.id}:slot_background", "Slot Background")
+        }
+        if (selectedModule.id == "gif_hud") {
+            addInput("${selectedModule.id}:file_name", "Media File", "name.gif / .png / .jpg")
+            addToggle("${selectedModule.id}:chroma_key_enabled", "Chroma Key")
+            addInput("${selectedModule.id}:chroma_key_color", "Chroma Key Color", "#RRGGBB")
+            addToggle("${selectedModule.id}:invert_colors", "Invert Colors")
+            addSlider("${selectedModule.id}:chroma_key_strength", "Chroma Key Strength", 0f, 1f)
         }
 
         if (selectedModule.id == VisualClientMod.sdfTestModuleId) {
@@ -911,6 +983,10 @@ class ExperimentalVisualsMenuScreen : Screen(Component.empty()) {
 
     private fun settingInputRows(layout: ScreenLayout): List<SettingRowLayout.Input> {
         return settingRows(layout).filterIsInstance<SettingRowLayout.Input>()
+    }
+
+    private fun settingSliderRows(layout: ScreenLayout): List<SettingRowLayout.Slider> {
+        return settingRows(layout).filterIsInstance<SettingRowLayout.Slider>()
     }
 
     private fun filteredModules(): List<VisualMenuModuleEntry> {
@@ -1017,7 +1093,9 @@ class ExperimentalVisualsMenuScreen : Screen(Component.empty()) {
             VisualThemeSettings.neonBorderColorKey -> ModuleStateStore.getTextSetting(key, "#8A71FF")
             VisualThemeSettings.sliderFillColorKey -> ModuleStateStore.getTextSetting(key, "#8A71FF")
             VisualThemeSettings.sliderKnobColorKey -> ModuleStateStore.getTextSetting(key, "#F0F2FF")
-            else -> ""
+            "gif_hud:file_name" -> ModuleStateStore.getTextSetting(key, "")
+            "gif_hud:chroma_key_color" -> ModuleStateStore.getTextSetting(key, "#00FF00")
+            else -> ModuleStateStore.getTextSetting(key, "")
         }
     }
 
@@ -1025,7 +1103,8 @@ class ExperimentalVisualsMenuScreen : Screen(Component.empty()) {
         return key == VisualThemeSettings.accentColorKey ||
             key == VisualThemeSettings.neonBorderColorKey ||
             key == VisualThemeSettings.sliderFillColorKey ||
-            key == VisualThemeSettings.sliderKnobColorKey
+            key == VisualThemeSettings.sliderKnobColorKey ||
+            key == "gif_hud:chroma_key_color"
     }
 
     private fun themeColorSwatchRect(row: SettingRowLayout.Input): IntRect? {
@@ -1052,7 +1131,7 @@ class ExperimentalVisualsMenuScreen : Screen(Component.empty()) {
     }
 
     private fun themePickerLayout(layout: ScreenLayout): ThemePickerLayout? {
-        if (activeThemeColorKey == null || activeTab != VisualMenuTab.THEME) return null
+        if (activeThemeColorKey == null) return null
         val bounds = IntRect(
             layout.panel.x + (layout.panel.width - 252) / 2,
             layout.panel.y + (layout.panel.height - 212) / 2,
@@ -1114,6 +1193,7 @@ class ExperimentalVisualsMenuScreen : Screen(Component.empty()) {
             VisualThemeSettings.neonBorderColorKey -> neonBorderColor()
             VisualThemeSettings.sliderFillColorKey -> sliderFillColor()
             VisualThemeSettings.sliderKnobColorKey -> sliderKnobColor()
+            "gif_hud:chroma_key_color" -> parseColorSetting(ModuleStateStore.getTextSetting(key, "#00FF00"), 0xFF00FF00.toInt())
             else -> 0xFFFFFFFF.toInt()
         }
     }
@@ -1136,6 +1216,7 @@ class ExperimentalVisualsMenuScreen : Screen(Component.empty()) {
             VisualThemeSettings.neonBorderColorKey -> "Neon Border"
             VisualThemeSettings.sliderFillColorKey -> "Slider Fill"
             VisualThemeSettings.sliderKnobColorKey -> "Slider Knob"
+            "gif_hud:chroma_key_color" -> "Chroma Key Color"
             else -> "Theme Color"
         }
         context.drawString(font, vText(label), picker.bounds.x + 18, picker.bounds.y + 16, 0xFFF4F6FF.toInt(), false)
@@ -1279,6 +1360,57 @@ class ExperimentalVisualsMenuScreen : Screen(Component.empty()) {
         if (compact.length != 6 && compact.length != 8) return null
         if (!compact.all { it.isDigit() || it.lowercaseChar() in 'a'..'f' }) return null
         return "#${compact.uppercase()}"
+    }
+
+    private fun sanitizeFileName(raw: String): String {
+        return raw.trim()
+            .substringAfterLast('/')
+            .substringAfterLast('\\')
+    }
+
+    private fun parseColorSetting(value: String, fallback: Int): Int {
+        val normalized = normalizeHexColor(value) ?: return fallback
+        val compact = normalized.removePrefix("#")
+        return compact.toLongOrNull(16)?.let { packed ->
+            if (compact.length == 6) {
+                (0xFF000000 or packed).toInt()
+            } else {
+                packed.toInt()
+            }
+        } ?: fallback
+    }
+
+    private fun sliderProgress(row: SettingRowLayout.Slider): Float {
+        val value = ModuleStateStore.getNumberSetting(row.key, row.min)
+        if (row.max <= row.min) return 0f
+        return ((value - row.min) / (row.max - row.min)).coerceIn(0f, 1f)
+    }
+
+    private fun updateSliderValue(row: SettingRowLayout.Slider, mouseX: Double) {
+        val progress = ((mouseX - row.trackRect.x) / row.trackRect.width.toDouble()).toFloat().coerceIn(0f, 1f)
+        val rawValue = row.min + ((row.max - row.min) * progress)
+        val value = when (row.key) {
+            "gif_hud:chroma_key_strength" -> (kotlin.math.round(rawValue * 100f) / 100f)
+            "gif_hud:scale" -> (kotlin.math.round(rawValue * 10f) / 10f)
+            else -> if (row.key.endsWith(":size")) {
+                kotlin.math.round(rawValue * 10f) / 10f
+            } else {
+                rawValue
+            }
+        }
+        ModuleStateStore.setNumberSetting(row.key, value)
+    }
+
+    private fun formatSliderValue(key: String, value: Float): String {
+        return when (key) {
+            "gif_hud:chroma_key_strength" -> "${(value * 100f).roundToInt()}%"
+            "gif_hud:scale" -> "${String.format(java.util.Locale.US, "%.1f", value)}x"
+            else -> if (key.endsWith(":size")) {
+                "${String.format(java.util.Locale.US, "%.1f", value)}x"
+            } else {
+                formatNumber(value)
+            }
+        }
     }
 
     private fun accentStrongColor(): Int = VisualThemeSettings.accentStrong()
@@ -1556,6 +1688,13 @@ class ExperimentalVisualsMenuScreen : Screen(Component.empty()) {
 
     override fun mouseDragged(mouseButtonEvent: MouseButtonEvent, dragX: Double, dragY: Double): Boolean {
         val layout = computeLayout()
+        val sliderRow = activeSliderKey?.let { key ->
+            settingSliderRows(layout).firstOrNull { it.key == key }
+        }
+        if (mouseButtonEvent.button() == 0 && sliderRow != null) {
+            updateSliderValue(sliderRow, mouseButtonEvent.x())
+            return true
+        }
         val picker = themePickerLayout(layout)
         if (mouseButtonEvent.button() == 0 && picker != null) {
             when (pickerDragMode) {
@@ -1576,6 +1715,10 @@ class ExperimentalVisualsMenuScreen : Screen(Component.empty()) {
     }
 
     override fun mouseReleased(mouseButtonEvent: MouseButtonEvent): Boolean {
+        if (mouseButtonEvent.button() == 0 && activeSliderKey != null) {
+            activeSliderKey = null
+            return true
+        }
         if (mouseButtonEvent.button() == 0 && pickerDragMode != null) {
             pickerDragMode = null
             return true

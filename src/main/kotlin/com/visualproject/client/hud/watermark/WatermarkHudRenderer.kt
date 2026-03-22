@@ -78,6 +78,8 @@ class WatermarkHudRenderer(
     private var wasLeftMousePressed = false
     private var lastRenderedControls: ControlHitboxes? = null
     private var lastRenderedExpansion: Float = 0f
+    private var lastRenderedScale: Float = 1f
+    private var lastRenderedActualBounds: HudBounds? = null
     private var smoothedTrackKey: String? = null
     private var smoothedPositionSeconds = 0f
     private var smoothedDurationSeconds = 0f
@@ -116,14 +118,21 @@ class WatermarkHudRenderer(
     ) {
         if (client.player == null || client.options.hideGui) return
 
+        val musicScanEnabled = ModuleStateStore.isSettingEnabled("${watermarkModuleId}:music_scan")
+        musicProvider.setScanningEnabled(musicScanEnabled)
+
         val font = client.font
         val mouseX = client.mouseHandler.getScaledXPos(client.window).toInt()
         val mouseY = client.mouseHandler.getScaledYPos(client.window).toInt()
+        val scale = hudScale()
 
-        val currentBounds = computeBounds(context, animation.currentExpansion())
-        val state = stateCalculator.resolve(client, currentBounds, mouseX, mouseY)
+        val currentLocalBounds = computeLocalBounds(animation.currentExpansion())
+        val currentActualBounds = computeActualBounds(context, animation.currentExpansion(), scale)
+        val currentLocalMouseX = toLocalMouse(mouseX, currentActualBounds.left, scale)
+        val currentLocalMouseY = toLocalMouse(mouseY, currentActualBounds.top, scale)
+        val state = stateCalculator.resolve(client, currentLocalBounds, currentLocalMouseX, currentLocalMouseY)
 
-        val marqueeWidth = calculateCompactMusicTextWidth(currentBounds.width)
+        val marqueeWidth = calculateCompactMusicTextWidth(currentLocalBounds.width)
         val trackTitleWidth = state.track?.let { font.width(vText(it.title)) } ?: 0
         val marqueeCycle = (trackTitleWidth + WatermarkHudTheme.marqueeGapPx).toFloat()
         val marqueeActive = state.mode == WatermarkMode.MUSIC && trackTitleWidth > marqueeWidth
@@ -134,30 +143,48 @@ class WatermarkHudRenderer(
             marqueeCyclePx = marqueeCycle,
         )
 
-        val bounds = computeBounds(context, snapshot.expansion)
+        val localBounds = computeLocalBounds(snapshot.expansion)
+        val actualBounds = computeActualBounds(context, snapshot.expansion, scale)
+        val localMouseX = toLocalMouse(mouseX, actualBounds.left, scale)
+        val localMouseY = toLocalMouse(mouseY, actualBounds.top, scale)
         val renderTrack = state.track?.let { prepareRenderTrack(client, it, snapshot.deltaSeconds) }
-        drawMainShell(context, bounds, snapshot.expansion)
+        lastRenderedActualBounds = actualBounds
+        lastRenderedScale = scale
+
+        context.pose().pushMatrix()
+        context.pose().translate(actualBounds.left.toFloat(), actualBounds.top.toFloat())
+        context.pose().scale(scale, scale)
+
+        drawMainShell(context, localBounds, snapshot.expansion)
 
         val compactAlpha = (1f - (snapshot.expansion * 1.15f)).coerceIn(0f, 1f)
         if (state.mode == WatermarkMode.DEFAULT || renderTrack == null) {
             lastRenderedControls = null
             lastRenderedExpansion = 0f
-            drawDefaultCompact(context, font, bounds, client, compactAlpha)
+            drawDefaultCompact(context, font, localBounds, client, compactAlpha)
+            context.pose().popMatrix()
             consumeClickState(client)
             return
         }
 
-        drawMusicCompact(context, font, bounds, renderTrack, snapshot.marqueePx, compactAlpha)
+        drawMusicCompact(
+            context = context,
+            font = font,
+            bounds = localBounds,
+            track = renderTrack,
+            alpha = compactAlpha,
+        )
 
         val controls = if (snapshot.expansion > 0.01f && state.canExpand) {
-            drawExpandedMusic(context, font, bounds, renderTrack, snapshot.expansion, mouseX, mouseY)
+            drawExpandedMusic(context, font, localBounds, renderTrack, snapshot.expansion, localMouseX, localMouseY)
         } else {
             null
         }
+        context.pose().popMatrix()
         lastRenderedControls = controls
         lastRenderedExpansion = snapshot.expansion
 
-        handleControlClicks(client, controls, mouseX, mouseY, snapshot.expansion)
+        handleControlClicks(client, controls, localMouseX, localMouseY, snapshot.expansion)
     }
 
     fun onScreenMouseClick(
@@ -169,6 +196,8 @@ class WatermarkHudRenderer(
         if (mouseEvent.button() != 0) return consumed
 
         val controls = lastRenderedControls
+        val actualBounds = lastRenderedActualBounds
+        val scale = lastRenderedScale
         val expansion = lastRenderedExpansion
         val mouseX = mouseEvent.x().toInt()
         val mouseY = mouseEvent.y().toInt()
@@ -185,16 +214,18 @@ class WatermarkHudRenderer(
             )
         }
 
-        if (controls == null || expansion <= 0.01f) {
+        if (controls == null || actualBounds == null || expansion <= 0.01f) {
             return consumed
         }
 
-        val hoveredControl = controls.resolveHovered(mouseX, mouseY) ?: return consumed
+        val localMouseX = toLocalMouse(mouseX, actualBounds.left, scale)
+        val localMouseY = toLocalMouse(mouseY, actualBounds.top, scale)
+        val hoveredControl = controls.resolveHovered(localMouseX, localMouseY) ?: return consumed
         val handled = dispatchControlClick(
             client = client,
             hoveredControl = hoveredControl,
-            mouseX = mouseX,
-            mouseY = mouseY,
+            mouseX = localMouseX,
+            mouseY = localMouseY,
             expansion = expansion,
             inputRoute = "screen-event",
         )
@@ -268,7 +299,6 @@ class WatermarkHudRenderer(
         font: Font,
         bounds: HudBounds,
         track: WatermarkTrackInfo,
-        marqueeOffsetPx: Float,
         alpha: Float,
     ) {
         val iconSize = WatermarkHudTheme.compactArtworkSize
@@ -286,20 +316,8 @@ class WatermarkHudRenderer(
         val textX = iconX + iconSize + 8
         val textWidth = (rightMarkerX - 8 - textX).coerceAtLeast(28)
         val textY = baselineY
-        val titleWidth = font.width(vText(track.title))
-
-        context.enableScissor(textX, bounds.top + 3, textX + textWidth, bounds.top + WatermarkHudTheme.compactHeight - 3)
-        if (titleWidth <= textWidth) {
-            context.drawString(font, vText(track.title), textX, textY, withAlpha(WatermarkHudTheme.textPrimary, alpha), false)
-        } else {
-            val cycle = (titleWidth + WatermarkHudTheme.marqueeGapPx).toFloat()
-            val firstX = (textX - marqueeOffsetPx).roundToInt()
-            val secondX = (firstX + cycle).roundToInt()
-            val color = withAlpha(WatermarkHudTheme.textPrimary, alpha)
-            context.drawString(font, vText(track.title), firstX, textY, color, false)
-            context.drawString(font, vText(track.title), secondX, textY, color, false)
-        }
-        context.disableScissor()
+        val clippedTitle = clipStyledText(track.title, textWidth, font)
+        context.drawString(font, clippedTitle, textX, textY, withAlpha(WatermarkHudTheme.textPrimary, alpha), false)
 
         context.drawString(font, vText(rightMarker), rightMarkerX, textY, withAlpha(WatermarkHudTheme.textMuted, alpha), false)
     }
@@ -1121,12 +1139,27 @@ class WatermarkHudRenderer(
         return (widgetWidth - left - rightReserved).coerceAtLeast(26)
     }
 
-    private fun computeBounds(context: GuiGraphics, expansion: Float): HudBounds {
+    private fun computeLocalBounds(expansion: Float): HudBounds {
         val width = lerpInt(WatermarkHudTheme.compactWidth, WatermarkHudTheme.expandedWidth, expansion)
         val height = lerpInt(WatermarkHudTheme.compactHeight, WatermarkHudTheme.expandedHeight, expansion)
+        return HudBounds(0, 0, width, height)
+    }
+
+    private fun computeActualBounds(context: GuiGraphics, expansion: Float, scale: Float): HudBounds {
+        val localBounds = computeLocalBounds(expansion)
+        val width = (localBounds.width * scale).roundToInt().coerceAtLeast(1)
+        val height = (localBounds.height * scale).roundToInt().coerceAtLeast(1)
         val x = (context.guiWidth() - width) / 2
         val y = WatermarkHudTheme.anchorTop
         return HudBounds(x, y, width, height)
+    }
+
+    private fun hudScale(): Float {
+        return ModuleStateStore.getNumberSetting("${watermarkModuleId}:size", 1.0f).coerceIn(0.5f, 3.0f)
+    }
+
+    private fun toLocalMouse(globalMouse: Int, origin: Int, scale: Float): Int {
+        return ((globalMouse - origin) / scale).toInt()
     }
 
     private fun resolvePing(client: Minecraft): Int {

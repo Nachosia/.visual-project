@@ -1,4 +1,4 @@
-package com.visualproject.client.hud.potions
+package com.visualproject.client.hud.cooldowns
 
 import com.visualproject.client.ModuleStateStore
 import com.visualproject.client.VisualThemeSettings
@@ -15,43 +15,47 @@ import net.minecraft.client.gui.GuiGraphics
 import net.minecraft.client.gui.screens.ChatScreen
 import net.minecraft.client.gui.screens.Screen
 import net.minecraft.client.input.MouseButtonEvent
-import net.minecraft.client.renderer.RenderPipelines
 import net.minecraft.resources.Identifier
-import net.minecraft.core.Holder
-import net.minecraft.core.registries.BuiltInRegistries
-import net.minecraft.world.effect.MobEffect
-import net.minecraft.world.effect.MobEffectInstance
+import net.minecraft.world.entity.player.Player
+import net.minecraft.world.item.ItemCooldowns
+import net.minecraft.world.item.ItemStack
+import net.minecraft.world.item.Items
+import java.lang.reflect.Field
+import java.lang.reflect.Method
+import java.util.Locale
+import kotlin.math.floor
 import kotlin.math.roundToInt
 
-internal class PotionHudRenderer {
+internal class CooldownsHudRenderer {
 
     companion object {
-        private const val moduleId = "potions"
+        private const val moduleId = "cooldowns_hud"
     }
 
     private object Layout {
-        const val shellWidth = 170
+        const val shellWidth = 178
         const val shellRadius = 17f
         const val padding = 8
-        const val headerHeight = 0
         const val rowHeight = 16
         const val rowGap = 4
         const val iconSize = 14
         const val iconGap = 6
         const val timeRightInset = 8
         const val anchorX = 12
-        const val anchorY = 72
+        const val anchorY = 94
     }
 
-    private data class EffectEntry(
-        val effect: MobEffectInstance?,
-        val effectHolder: Holder<MobEffect>?,
+    private data class CooldownEntry(
+        val stack: ItemStack,
         val label: String,
         val durationText: String,
+        val remainingTicks: Int,
     )
 
-    private var dragState: PotionHudDragState? = null
-    private var lastBounds: PotionHudBounds? = null
+    private var dragState: CooldownsHudDragState? = null
+    private var lastBounds: CooldownsHudBounds? = null
+
+    private var reflectionFailureLogged = false
     private var lastScale = -1f
 
     fun render(context: GuiGraphics, client: Minecraft) {
@@ -60,7 +64,7 @@ internal class PotionHudRenderer {
         if (client.screen != null && client.screen !is ChatScreen) return
         val scale = hudScale()
 
-        val entries = activeEntries(player.activeEffects.toList())
+        val entries = activeEntries(player)
         if (entries.isEmpty() && client.screen !is ChatScreen) {
             return
         }
@@ -73,7 +77,7 @@ internal class PotionHudRenderer {
         val actualWidth = scaled(Layout.shellWidth, scale)
         val actualHeight = scaled(baseShellHeight, scale)
         clampToScreen(client, state, actualWidth, actualHeight)
-        val bounds = PotionHudBounds(
+        val bounds = CooldownsHudBounds(
             x = state.position.x,
             y = state.position.y,
             width = actualWidth,
@@ -100,7 +104,7 @@ internal class PotionHudRenderer {
 
         visibleEntries.forEachIndexed { index, entry ->
             val rowY = Layout.padding + (index * (Layout.rowHeight + Layout.rowGap))
-            drawEffectRow(context, client, client.font, Layout.padding, rowY, entry)
+            drawCooldownRow(context, client.font, Layout.padding, rowY, entry)
         }
 
         context.pose().popMatrix()
@@ -117,7 +121,7 @@ internal class PotionHudRenderer {
 
         val scale = hudScale()
         val state = ensureDragState(client)
-        val bounds = lastBounds ?: PotionHudBounds(
+        val bounds = lastBounds ?: CooldownsHudBounds(
             x = state.position.x,
             y = state.position.y,
             width = scaled(Layout.shellWidth, scale),
@@ -165,20 +169,18 @@ internal class PotionHudRenderer {
         val state = dragState ?: return consumed
         val ended = state.endDrag()
         if (ended) {
-            PotionHudPositionStore.save(state.position)
+            CooldownsHudPositionStore.save(state.position)
         }
         return consumed || ended
     }
 
-    private fun drawEffectRow(
+    private fun drawCooldownRow(
         context: GuiGraphics,
-        client: Minecraft,
         font: Font,
         x: Int,
         y: Int,
-        entry: EffectEntry,
+        entry: CooldownEntry,
     ) {
-        val effectHolder = entry.effectHolder
         val iconX = x
         val iconY = y
         val textX = iconX + Layout.iconSize + Layout.iconGap
@@ -186,7 +188,7 @@ internal class PotionHudRenderer {
         val timeX = x + Layout.shellWidth - (Layout.padding * 2) - Layout.timeRightInset - timeTextWidth
         val nameMaxWidth = (timeX - textX - 8).coerceAtLeast(24)
 
-        drawEffectIcon(context, client, effectHolder, iconX, iconY)
+        drawItemIcon(context, entry.stack, iconX, iconY)
 
         val label = entry.label.takeIf { font.width(vText(it)) <= nameMaxWidth }
             ?: font.substrByWidth(vText(entry.label), nameMaxWidth).string
@@ -194,96 +196,156 @@ internal class PotionHudRenderer {
         context.drawString(font, vText(entry.durationText), timeX, y + 3, 0xFFF4F6FF.toInt(), false)
     }
 
-    private fun drawEffectIcon(
+    private fun drawItemIcon(
         context: GuiGraphics,
-        client: Minecraft,
-        effectHolder: Holder<MobEffect>?,
+        stack: ItemStack,
         x: Int,
         y: Int,
     ) {
-        if (effectHolder == null) {
-            context.drawString(
-                client.font,
-                vText("P"),
-                x + 4,
-                y + 3,
-                0xFFF4F6FF.toInt(),
-                false,
-            )
+        if (stack.isEmpty) {
             return
         }
-
-        val texture = resolveEffectTexture(client, effectHolder)
-        if (texture != null) {
-            context.blit(
-                RenderPipelines.GUI_TEXTURED,
-                texture,
-                x,
-                y,
-                0f,
-                0f,
-                Layout.iconSize,
-                Layout.iconSize,
-                Layout.iconSize,
-                Layout.iconSize,
-                Layout.iconSize,
-                Layout.iconSize,
-                0xFFFFFFFF.toInt(),
-            )
-        } else {
-            context.drawString(
-                client.font,
-                vText("P"),
-                x + 4,
-                y + 3,
-                0xFFF4F6FF.toInt(),
-                false,
-            )
-        }
+        context.renderItem(stack, x + ((Layout.iconSize - 16) / 2), y + ((Layout.iconSize - 16) / 2))
     }
 
-    private fun activeEntries(effects: List<MobEffectInstance>): List<EffectEntry> {
-        return effects
-            .sortedWith(
-                compareByDescending<MobEffectInstance> { it.amplifier }
-                    .thenByDescending { if (it.isInfiniteDuration) Int.MAX_VALUE else it.duration }
-                    .thenBy { effectName(it) }
-            )
-            .map { effect ->
-                EffectEntry(
-                    effect = effect,
-                    effectHolder = effect.effect,
-                    label = effectName(effect),
-                    durationText = durationText(effect),
+    private fun activeEntries(player: Player): List<CooldownEntry> {
+        val cooldowns = player.cooldowns
+        val activeMap = readCooldownMap(cooldowns) ?: return emptyList()
+        val tickCount = readTickCount(cooldowns) ?: return emptyList()
+        val inventoryStacks = collectCandidateStacks(player)
+
+        return activeMap.entries
+            .mapNotNull { (groupId, instance) ->
+                val endTick = readEndTick(instance) ?: return@mapNotNull null
+                val remainingTicks = endTick - tickCount
+                if (remainingTicks <= 0) return@mapNotNull null
+
+                val stack = inventoryStacks.firstOrNull { stack ->
+                    !stack.isEmpty && stackCooldownGroup(cooldowns, stack) == groupId
+                } ?: fallbackStack(groupId)
+
+                CooldownEntry(
+                    stack = stack,
+                    label = cooldownLabel(stack, groupId),
+                    durationText = remainingText(remainingTicks),
+                    remainingTicks = remainingTicks,
                 )
             }
+            .sortedBy { it.remainingTicks }
     }
 
-    private fun previewEntries(): List<EffectEntry> {
+    private fun previewEntries(): List<CooldownEntry> {
         return listOf(
-            EffectEntry(effect = null, effectHolder = null, label = "Speed", durationText = "1:28"),
-            EffectEntry(effect = null, effectHolder = null, label = "Strength", durationText = "0:41"),
-            EffectEntry(effect = null, effectHolder = null, label = "Regeneration", durationText = "2:05"),
+            CooldownEntry(ItemStack(Items.ENDER_PEARL), "Ender Pearl", "5.3", 106),
+            CooldownEntry(ItemStack(Items.CHORUS_FRUIT), "Chorus Fruit", "12", 240),
+            CooldownEntry(ItemStack(Items.GOAT_HORN), "Goat Horn", "1:04", 1280),
         )
     }
 
-    private fun effectName(effect: MobEffectInstance): String {
-        val holder = effect.effect
-        val base = holder.value().displayName.string
-        return if (effect.amplifier > 0) "$base ${effect.amplifier + 1}" else base
+    private fun collectCandidateStacks(player: Player): List<ItemStack> {
+        val inventory = player.inventory
+        return buildList {
+            for (slot in 0 until inventory.containerSize) {
+                val stack = inventory.getItem(slot)
+                if (!stack.isEmpty) {
+                    add(stack)
+                }
+            }
+        }
     }
 
-    private fun durationText(effect: MobEffectInstance): String {
-        if (effect.isInfiniteDuration) return "inf"
-        val totalSeconds = (effect.duration / 20).coerceAtLeast(0)
-        val minutes = totalSeconds / 60
-        val seconds = totalSeconds % 60
-        return "%d:%02d".format(minutes, seconds)
+    private fun cooldownLabel(stack: ItemStack, groupId: Identifier): String {
+        if (!stack.isEmpty) return stack.hoverName.string
+        return groupId.path
+            .split('_', '-', ' ')
+            .filter { it.isNotBlank() }
+            .joinToString(" ") { token ->
+                token.replaceFirstChar { if (it.isLowerCase()) it.titlecase(Locale.getDefault()) else it.toString() }
+            }
+            .ifBlank { "Cooldown" }
     }
 
-    private fun resolveEffectTexture(client: Minecraft, effectHolder: Holder<MobEffect>): Identifier? {
-        val effectId = BuiltInRegistries.MOB_EFFECT.getKey(effectHolder.value()) ?: return null
-        return Identifier.fromNamespaceAndPath(effectId.namespace, "textures/mob_effect/${effectId.path}.png")
+    private fun remainingText(remainingTicks: Int): String {
+        val seconds = remainingTicks / 20f
+        if (seconds < 10f) {
+            val tenths = floor(seconds * 10f).coerceAtLeast(0f) / 10f
+            return String.format(Locale.US, "%.1f", tenths)
+        }
+
+        val roundedSeconds = kotlin.math.ceil(seconds.toDouble()).toInt().coerceAtLeast(0)
+        return if (roundedSeconds >= 60) {
+            "%d:%02d".format(roundedSeconds / 60, roundedSeconds % 60)
+        } else {
+            roundedSeconds.toString()
+        }
+    }
+
+    private fun fallbackStack(groupId: Identifier): ItemStack {
+        return runCatching {
+            if (net.minecraft.core.registries.BuiltInRegistries.ITEM.containsKey(groupId)) {
+                ItemStack(net.minecraft.core.registries.BuiltInRegistries.ITEM.getValue(groupId))
+            } else {
+                ItemStack.EMPTY
+            }
+        }.getOrDefault(ItemStack.EMPTY)
+    }
+
+    private fun readCooldownMap(cooldowns: ItemCooldowns): Map<Identifier, Any>? {
+        val field = findField(cooldowns.javaClass, "cooldowns", "field_8024") ?: return null.also { logReflectionFailure() }
+        val raw = runCatching { field.get(cooldowns) }.getOrNull() as? Map<*, *> ?: return null.also { logReflectionFailure() }
+        return raw.entries
+            .mapNotNull { entry ->
+                val key = entry.key as? Identifier ?: return@mapNotNull null
+                val value = entry.value ?: return@mapNotNull null
+                key to value
+            }
+            .toMap()
+    }
+
+    private fun readTickCount(cooldowns: ItemCooldowns): Int? {
+        val field = findField(cooldowns.javaClass, "tickCount", "field_8025") ?: return null.also { logReflectionFailure() }
+        return runCatching { field.getInt(cooldowns) }.getOrNull()
+    }
+
+    private fun readEndTick(instance: Any): Int? {
+        findField(instance.javaClass, "endTime", "comp_3084")?.let { field ->
+            return runCatching { field.getInt(instance) }.getOrNull()
+        }
+        findMethod(instance.javaClass, arrayOf("endTime", "comp_3084"))?.let { method ->
+            return runCatching { method.invoke(instance) as? Int }.getOrNull()
+        }
+        logReflectionFailure()
+        return null
+    }
+
+    private fun stackCooldownGroup(cooldowns: ItemCooldowns, stack: ItemStack): Identifier? {
+        val method = findMethod(cooldowns.javaClass, arrayOf("getCooldownGroup", "method_62836"), ItemStack::class.java)
+            ?: return null.also { logReflectionFailure() }
+        return runCatching { method.invoke(cooldowns, stack) as? Identifier }.getOrNull()
+    }
+
+    private fun findField(type: Class<*>, vararg names: String): Field? {
+        names.forEach { name ->
+            runCatching {
+                type.getDeclaredField(name).apply { isAccessible = true }
+            }.getOrNull()?.let { return it }
+        }
+        return null
+    }
+
+    private fun findMethod(type: Class<*>, names: Array<String>, vararg parameterTypes: Class<*>): Method? {
+        names.forEach { name ->
+            runCatching {
+                type.getDeclaredMethod(name, *parameterTypes).apply { isAccessible = true }
+            }.getOrNull()?.let { return it }
+        }
+        return null
+    }
+
+    private fun logReflectionFailure() {
+        if (reflectionFailureLogged) return
+        reflectionFailureLogged = true
+        com.visualproject.client.VisualClientMod.LOGGER.warn("cooldowns-hud: failed to reflect cooldown internals; HUD will stay empty until mappings are adjusted")
     }
 
     private fun shellStyle(glowColor: Int, neonColor: Int): SdfPanelStyle {
@@ -295,7 +357,12 @@ internal class PotionHudRenderer {
             innerGlow = SdfGlowStyle(0xFFFFFFFF.toInt(), radiusPx = 12f, strength = 0.03f, opacity = 0.03f),
             outerGlow = SdfGlowStyle(glowColor, radiusPx = 22f, strength = 0.18f, opacity = 0.11f),
             shade = SdfShadeStyle(0x10FFFFFF, 0x18000000),
-            neonBorder = SdfNeonBorderStyle(VisualThemeSettings.withAlpha(neonColor, 0x88), widthPx = 1.0f, softnessPx = 5f, strength = 0.52f),
+            neonBorder = SdfNeonBorderStyle(
+                color = VisualThemeSettings.withAlpha(neonColor, 0x88),
+                widthPx = 1.0f,
+                softnessPx = 5f,
+                strength = 0.52f,
+            ),
         )
     }
 
@@ -303,21 +370,21 @@ internal class PotionHudRenderer {
         return Layout.padding + (rowCount * Layout.rowHeight) + ((rowCount - 1).coerceAtLeast(0) * Layout.rowGap) + Layout.padding
     }
 
-    private fun ensureDragState(client: Minecraft): PotionHudDragState {
+    private fun ensureDragState(client: Minecraft): CooldownsHudDragState {
         val current = dragState
         if (current != null) return current
 
-        val defaultPosition = PotionHudPosition(
+        val defaultPosition = CooldownsHudPosition(
             x = Layout.anchorX,
             y = Layout.anchorY,
         )
-        return PotionHudDragState(PotionHudPositionStore.load(defaultPosition)).also { loaded ->
+        return CooldownsHudDragState(CooldownsHudPositionStore.load(defaultPosition)).also { loaded ->
             clampToScreen(client, loaded, scaled(Layout.shellWidth, hudScale()), scaled(shellHeightFor(3), hudScale()))
             dragState = loaded
         }
     }
 
-    private fun clampToScreen(client: Minecraft, state: PotionHudDragState, hudWidth: Int, hudHeight: Int) {
+    private fun clampToScreen(client: Minecraft, state: CooldownsHudDragState, hudWidth: Int, hudHeight: Int) {
         state.setPositionClamped(
             x = state.position.x,
             y = state.position.y,
@@ -330,7 +397,7 @@ internal class PotionHudRenderer {
 
     private fun adjustPositionForScaleChange(
         client: Minecraft,
-        state: PotionHudDragState,
+        state: CooldownsHudDragState,
         baseWidth: Int,
         baseHeight: Int,
         scale: Float,
@@ -358,7 +425,7 @@ internal class PotionHudRenderer {
             hudWidth = newWidth,
             hudHeight = newHeight,
         )
-        PotionHudPositionStore.save(state.position)
+        CooldownsHudPositionStore.save(state.position)
         lastScale = scale
     }
 

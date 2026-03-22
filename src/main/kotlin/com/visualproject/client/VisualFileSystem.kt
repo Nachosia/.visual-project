@@ -12,14 +12,12 @@ object VisualFileSystem {
     private const val SOUND_DIR_NAME = "sound"
     private const val GIF_DIR_NAME = "gif"
     private const val PNG_DIR_NAME = "png"
-    private const val VID_DIR_NAME = "vid"
 
     private val requiredSubDirs = listOf(
         CFG_DIR_NAME,
         SOUND_DIR_NAME,
         GIF_DIR_NAME,
         PNG_DIR_NAME,
-        VID_DIR_NAME,
     )
 
     @Volatile
@@ -62,6 +60,5 @@ object VisualFileSystem {
     fun soundDir(): Path = rootDir().resolve(SOUND_DIR_NAME)
     fun gifDir(): Path = rootDir().resolve(GIF_DIR_NAME)
     fun pngDir(): Path = rootDir().resolve(PNG_DIR_NAME)
-    fun vidDir(): Path = rootDir().resolve(VID_DIR_NAME)
 }
 

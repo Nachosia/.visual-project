@@ -15,6 +15,7 @@ object ArmorHudModule {
         ModuleStateStore.ensureModule(moduleId, defaultEnabled = false)
         ModuleStateStore.ensureSetting("${moduleId}:accent_sync", defaultValue = true)
         ModuleStateStore.ensureSetting("${moduleId}:slot_background", defaultValue = true)
+        ModuleStateStore.ensureNumberSetting("${moduleId}:size", 1.0f)
 
         HudRenderCallback.EVENT.register(HudRenderCallback { context, _ ->
             if (!ModuleStateStore.isEnabled(moduleId)) return@HudRenderCallback

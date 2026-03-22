@@ -46,6 +46,7 @@ interface WatermarkPlaybackController {
 
 interface WatermarkMusicProvider {
     fun currentTrack(client: Minecraft): WatermarkTrackInfo?
+    fun setScanningEnabled(enabled: Boolean) {}
 
     fun playbackController(client: Minecraft): WatermarkPlaybackController? = null
 }
@@ -464,6 +465,8 @@ internal class SpotifySoundCloudMusicProvider(
     private val cachedTrackRef = AtomicReference<WatermarkTrackInfo?>(null)
     private val controlQueryRef = AtomicReference<String?>(null)
     private var mainPollFuture: ScheduledFuture<*>? = null
+    @Volatile
+    private var scanningEnabled = true
 
     private var lastKnownTrackIdentity: String? = null
     private var recentTrackChangedAtMs: Long = 0L
@@ -474,12 +477,32 @@ internal class SpotifySoundCloudMusicProvider(
     }
 
     override fun currentTrack(client: Minecraft): WatermarkTrackInfo? {
-        if (client.player == null) return null
+        if (!scanningEnabled || client.player == null) return null
         return cachedTrackRef.get()
     }
 
+    override fun setScanningEnabled(enabled: Boolean) {
+        if (scanningEnabled == enabled) return
+        scanningEnabled = enabled
+
+        if (!enabled) {
+            synchronized(pollLock) {
+                mainPollFuture?.cancel(false)
+                mainPollFuture = null
+            }
+            cachedTrackRef.set(null)
+            controlQueryRef.set(null)
+            lastKnownTrackIdentity = null
+            recentTrackChangedAtMs = 0L
+            lastManualControlAtMs = 0L
+            return
+        }
+
+        scheduleMainPoll(delayMs = 0L, reason = "settings-enabled", replaceExisting = true)
+    }
+
     override fun playbackController(client: Minecraft): WatermarkPlaybackController? {
-        return if (cachedTrackRef.get() != null) this else null
+        return if (scanningEnabled && cachedTrackRef.get() != null) this else null
     }
 
     override fun previous(client: Minecraft) {
@@ -495,6 +518,7 @@ internal class SpotifySoundCloudMusicProvider(
     }
 
     private fun enqueueControl(action: PlaybackAction) {
+        if (!scanningEnabled) return
         val query = controlQueryRef.get().orEmpty()
 
         logger.info(
@@ -576,11 +600,20 @@ internal class SpotifySoundCloudMusicProvider(
     }
 
     private fun safeRefresh(reason: String) {
+        if (!scanningEnabled) {
+            cachedTrackRef.set(null)
+            controlQueryRef.set(null)
+            lastKnownTrackIdentity = null
+            return
+        }
         try {
             refreshFromGateway()
         } catch (throwable: Throwable) {
             logger.warn("Media poll failed: {}", throwable.message)
         } finally {
+            if (!scanningEnabled) {
+                return
+            }
             val now = System.currentTimeMillis()
             val nextDelay = computeAdaptiveDelayMs(cachedTrackRef.get(), now)
             scheduleMainPoll(

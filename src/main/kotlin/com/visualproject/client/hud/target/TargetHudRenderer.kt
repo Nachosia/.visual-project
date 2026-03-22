@@ -1,5 +1,6 @@
 package com.visualproject.client.hud.target
 
+import com.visualproject.client.ModuleStateStore
 import com.visualproject.client.VisualThemeSettings
 import com.visualproject.client.render.sdf.SdfGlowStyle
 import com.visualproject.client.render.sdf.SdfNeonBorderStyle
@@ -179,6 +180,7 @@ internal class TargetHudRenderer {
     private var yawSlider = 0.50f
     private var pitchSlider = 0.46f
     private var zoomSlider = 0.0f
+    private var lastScale = -1f
 
     fun render(
         context: GuiGraphics,
@@ -186,6 +188,7 @@ internal class TargetHudRenderer {
         client: Minecraft,
     ) {
         if (client.player == null || client.options.hideGui) return
+        val scale = hudScale()
 
         val target = TargetHudTargeting.currentTarget(client)
         val chatOpen = client.screen is ChatScreen
@@ -199,18 +202,33 @@ internal class TargetHudRenderer {
             return
         }
 
-        clampToScreen(client)
+        adjustPositionForScaleChange(client, scale)
+        clampToScreen(client, scale)
 
-        val bounds = TargetHudBounds(
+        val actualBounds = TargetHudBounds(
             x = dragState.position.x,
             y = dragState.position.y,
+            width = scaled(TargetHudLayout.width, scale),
+            height = scaled(TargetHudLayout.height, scale),
+        )
+        val localBounds = TargetHudBounds(
+            x = 0,
+            y = 0,
             width = TargetHudLayout.width,
             height = TargetHudLayout.height,
         )
-        lastBounds = bounds
+        lastBounds = actualBounds
+        val mouseX = client.mouseHandler.getScaledXPos(client.window).toInt()
+        val mouseY = client.mouseHandler.getScaledYPos(client.window).toInt()
+        val localMouseX = toLocal(mouseX, actualBounds.x, scale)
+        val localMouseY = toLocal(mouseY, actualBounds.y, scale)
+
+        context.pose().pushMatrix()
+        context.pose().translate(actualBounds.x.toFloat(), actualBounds.y.toFloat())
+        context.pose().scale(scale, scale)
 
         if (chatOpen) {
-            drawSliderDock(context, bounds)
+            drawSliderDock(context, localBounds)
         } else {
             yawSliderBounds = null
             pitchSliderBounds = null
@@ -220,14 +238,15 @@ internal class TargetHudRenderer {
 
         SdfPanelRenderer.draw(
             context = context,
-            x = bounds.x,
-            y = bounds.y,
-            width = bounds.width,
-            height = bounds.height,
+            x = localBounds.x,
+            y = localBounds.y,
+            width = localBounds.width,
+            height = localBounds.height,
             style = Style.shell(),
         )
 
-        drawTargetContents(context, client.font, bounds, displayPlayer)
+        drawTargetContents(context, client.font, localBounds, actualBounds, scale, displayPlayer)
+        context.pose().popMatrix()
     }
 
     fun onScreenMouseClick(
@@ -239,33 +258,36 @@ internal class TargetHudRenderer {
         if (screen !is ChatScreen) return consumed
         if (mouseEvent.button() != 0) return consumed
 
-        clampToScreen(client)
+        val scale = hudScale()
+        clampToScreen(client, scale)
 
         val mouseX = mouseEvent.x().toInt()
         val mouseY = mouseEvent.y().toInt()
-
-        if (yawSliderBounds?.contains(mouseX, mouseY) == true) {
-            activeSlider = ActiveSlider.YAW
-            updateSliderFromMouse(mouseX)
-            return true
-        }
-        if (pitchSliderBounds?.contains(mouseX, mouseY) == true) {
-            activeSlider = ActiveSlider.PITCH
-            updateSliderFromMouse(mouseX)
-            return true
-        }
-        if (zoomSliderBounds?.contains(mouseX, mouseY) == true) {
-            activeSlider = ActiveSlider.ZOOM
-            updateSliderFromMouse(mouseX)
-            return true
-        }
-
         val bounds = lastBounds ?: TargetHudBounds(
             x = dragState.position.x,
             y = dragState.position.y,
-            width = TargetHudLayout.width,
-            height = TargetHudLayout.height,
+            width = scaled(TargetHudLayout.width, scale),
+            height = scaled(TargetHudLayout.height, scale),
         )
+        val localMouseX = toLocal(mouseX, bounds.x, scale)
+        val localMouseY = toLocal(mouseY, bounds.y, scale)
+
+        if (yawSliderBounds?.contains(localMouseX, localMouseY) == true) {
+            activeSlider = ActiveSlider.YAW
+            updateSliderFromMouse(localMouseX)
+            return true
+        }
+        if (pitchSliderBounds?.contains(localMouseX, localMouseY) == true) {
+            activeSlider = ActiveSlider.PITCH
+            updateSliderFromMouse(localMouseX)
+            return true
+        }
+        if (zoomSliderBounds?.contains(localMouseX, localMouseY) == true) {
+            activeSlider = ActiveSlider.ZOOM
+            updateSliderFromMouse(localMouseX)
+            return true
+        }
+
         val handled = dragState.beginDrag(bounds, mouseX, mouseY)
         if (handled) {
             logger.info("target-hud: drag-start mouse=({}, {}) hud=({}, {})", mouseX, mouseY, bounds.x, bounds.y)
@@ -285,9 +307,11 @@ internal class TargetHudRenderer {
         if (screen !is ChatScreen) return consumed
         if (mouseEvent.button() != 0) return consumed
 
+        val scale = hudScale()
         val mouseX = mouseEvent.x().toInt()
         if (activeSlider != null) {
-            updateSliderFromMouse(mouseX)
+            val bounds = lastBounds ?: return consumed
+            updateSliderFromMouse(toLocal(mouseX, bounds.x, scale))
             return true
         }
 
@@ -298,8 +322,8 @@ internal class TargetHudRenderer {
             mouseY = mouseEvent.y().toInt(),
             screenWidth = client.window.guiScaledWidth,
             screenHeight = client.window.guiScaledHeight,
-            hudWidth = TargetHudLayout.width,
-            hudHeight = TargetHudLayout.height,
+            hudWidth = scaled(TargetHudLayout.width, scale),
+            hudHeight = scaled(TargetHudLayout.height, scale),
         )
         if (horizontalAmount != 0.0 || verticalAmount != 0.0) {
             logger.info(
@@ -340,21 +364,51 @@ internal class TargetHudRenderer {
         return consumed || ended
     }
 
-    private fun clampToScreen(client: Minecraft) {
+    private fun clampToScreen(client: Minecraft, scale: Float) {
         dragState.setPositionClamped(
             x = dragState.position.x,
             y = dragState.position.y,
             screenWidth = client.window.guiScaledWidth,
             screenHeight = client.window.guiScaledHeight,
-            hudWidth = TargetHudLayout.width,
-            hudHeight = TargetHudLayout.height,
+            hudWidth = scaled(TargetHudLayout.width, scale),
+            hudHeight = scaled(TargetHudLayout.height, scale),
         )
+    }
+
+    private fun adjustPositionForScaleChange(client: Minecraft, scale: Float) {
+        if (lastScale <= 0f) {
+            lastScale = scale
+            return
+        }
+        if (kotlin.math.abs(lastScale - scale) < 0.001f || dragState.dragging) {
+            lastScale = scale
+            return
+        }
+
+        val oldWidth = scaled(TargetHudLayout.width, lastScale)
+        val oldHeight = scaled(TargetHudLayout.height, lastScale)
+        val newWidth = scaled(TargetHudLayout.width, scale)
+        val newHeight = scaled(TargetHudLayout.height, scale)
+        val targetX = dragState.position.x - ((newWidth - oldWidth) / 2)
+        val targetY = dragState.position.y - ((newHeight - oldHeight) / 2)
+        dragState.setPositionClamped(
+            x = targetX,
+            y = targetY,
+            screenWidth = client.window.guiScaledWidth,
+            screenHeight = client.window.guiScaledHeight,
+            hudWidth = newWidth,
+            hudHeight = newHeight,
+        )
+        TargetHudPositionStore.save(dragState.position)
+        lastScale = scale
     }
 
     private fun drawTargetContents(
         context: GuiGraphics,
         font: Font,
         bounds: TargetHudBounds,
+        actualBounds: TargetHudBounds,
+        scale: Float,
         target: Player,
     ) {
         val padding = TargetHudLayout.panelPadding
@@ -362,6 +416,10 @@ internal class TargetHudRenderer {
         val previewHeight = TargetHudLayout.previewHeight
         val previewX = bounds.x + padding
         val previewY = bounds.y + (bounds.height - previewHeight) / 2
+        val previewActualX = actualBounds.x + scaled(previewX, scale)
+        val previewActualY = actualBounds.y + scaled(previewY, scale)
+        val previewActualWidth = scaled(previewWidth, scale)
+        val previewActualHeight = scaled(previewHeight, scale)
 
         SdfPanelRenderer.draw(
             context = context,
@@ -374,10 +432,10 @@ internal class TargetHudRenderer {
         drawTargetPreview(
             context = context,
             target = target,
-            x = previewX,
-            y = previewY,
-            width = previewWidth,
-            height = previewHeight,
+            x = previewActualX,
+            y = previewActualY,
+            width = previewActualWidth,
+            height = previewActualHeight,
         )
 
         val rightX = previewX + previewWidth + 8
@@ -717,6 +775,18 @@ internal class TargetHudRenderer {
             }
             null -> Unit
         }
+    }
+
+    private fun hudScale(): Float {
+        return ModuleStateStore.getNumberSetting("target_hud:size", 1.0f).coerceIn(0.5f, 3.0f)
+    }
+
+    private fun scaled(value: Int, scale: Float): Int {
+        return (value * scale).roundToInt().coerceAtLeast(1)
+    }
+
+    private fun toLocal(global: Int, origin: Int, scale: Float): Int {
+        return ((global - origin) / scale).toInt()
     }
 }
 

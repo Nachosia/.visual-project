@@ -1,4 +1,4 @@
-package com.visualproject.client.hud.potions
+package com.visualproject.client.hud.gif
 
 import com.visualproject.client.ModuleStateStore
 import net.fabricmc.fabric.api.client.rendering.v1.HudRenderCallback
@@ -6,15 +6,21 @@ import net.fabricmc.fabric.api.client.screen.v1.ScreenEvents
 import net.fabricmc.fabric.api.client.screen.v1.ScreenMouseEvents
 import net.minecraft.client.Minecraft
 
-object PotionHudModule {
+object GifHudModule {
 
-    private const val moduleId = "potions"
-    private val renderer = PotionHudRenderer()
+    private const val moduleId = "gif_hud"
+    private val renderer = GifHudRenderer()
 
     fun initialize() {
         ModuleStateStore.ensureModule(moduleId, defaultEnabled = false)
-        ModuleStateStore.ensureSetting("${moduleId}:accent_sync", defaultValue = true)
-        ModuleStateStore.ensureNumberSetting("${moduleId}:size", 1.0f)
+        ModuleStateStore.ensureSetting("${moduleId}:visible_hud", defaultValue = false)
+        ModuleStateStore.ensureSetting("${moduleId}:chroma_key_enabled", defaultValue = true)
+        ModuleStateStore.ensureSetting("${moduleId}:invert_colors", defaultValue = false)
+        ModuleStateStore.ensureTextSetting("${moduleId}:file_name", "")
+        ModuleStateStore.ensureTextSetting("${moduleId}:chroma_key_color", "#00FF00")
+        ModuleStateStore.ensureNumberSetting("${moduleId}:chroma_key_strength", 0.18f)
+        ModuleStateStore.ensureNumberSetting("${moduleId}:size", ModuleStateStore.getNumberSetting("${moduleId}:scale", 1.0f))
+        ModuleStateStore.ensureNumberSetting("${moduleId}:scale", 1.0f)
 
         HudRenderCallback.EVENT.register(HudRenderCallback { context, _ ->
             if (!ModuleStateStore.isEnabled(moduleId)) return@HudRenderCallback

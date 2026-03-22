@@ -88,8 +88,11 @@ object SdfPanelRenderer {
                 style,
             ),
         )
+        val modelViewMat = Matrix4f()
+            .setTranslation(0f, 0f, -11000f)
+            .mul(context.pose())
         val dynamicTransforms = RenderSystem.getDynamicUniforms().writeTransform(
-            Matrix4f().setTranslation(0f, 0f, -11000f),
+            modelViewMat,
             Vector4f(1f, 1f, 1f, 1f),
             Vector3f(),
             Matrix4f(),

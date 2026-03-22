@@ -1,4 +1,4 @@
-package com.visualproject.client.hud.potions
+package com.visualproject.client.hud.cooldowns
 
 import com.visualproject.client.ModuleStateStore
 import net.fabricmc.fabric.api.client.rendering.v1.HudRenderCallback
@@ -6,10 +6,10 @@ import net.fabricmc.fabric.api.client.screen.v1.ScreenEvents
 import net.fabricmc.fabric.api.client.screen.v1.ScreenMouseEvents
 import net.minecraft.client.Minecraft
 
-object PotionHudModule {
+object CooldownsHudModule {
 
-    private const val moduleId = "potions"
-    private val renderer = PotionHudRenderer()
+    private const val moduleId = "cooldowns_hud"
+    private val renderer = CooldownsHudRenderer()
 
     fun initialize() {
         ModuleStateStore.ensureModule(moduleId, defaultEnabled = false)

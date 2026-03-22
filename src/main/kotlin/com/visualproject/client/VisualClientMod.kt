@@ -2,6 +2,8 @@ package com.visualproject.client
 
 import com.mojang.blaze3d.platform.InputConstants
 import com.visualproject.client.hud.armor.ArmorHudModule
+import com.visualproject.client.hud.cooldowns.CooldownsHudModule
+import com.visualproject.client.hud.gif.GifHudModule
 import com.visualproject.client.hud.potions.PotionHudModule
 import com.visualproject.client.hud.test.TestSdfHud
 import com.visualproject.client.hud.target.TargetHudModule
@@ -31,6 +33,7 @@ object VisualClientMod : ClientModInitializer {
         ModuleStateStore.initialize()
         VisualThemeSettings.initializeDefaults()
         ModuleStateStore.ensureModule(sdfTestModuleId, defaultEnabled = false)
+        ModuleStateStore.ensureNumberSetting("${sdfTestModuleId}:size", 1.0f)
         SdfShaderRegistry.registerEvent()
 
         openVisualsMenuKey = KeyBindingHelper.registerKeyBinding(
@@ -62,6 +65,8 @@ object VisualClientMod : ClientModInitializer {
 
         WatermarkHudModule.initialize()
         ArmorHudModule.initialize()
+        CooldownsHudModule.initialize()
+        GifHudModule.initialize()
         PotionHudModule.initialize()
         TargetHudModule.initialize()
 

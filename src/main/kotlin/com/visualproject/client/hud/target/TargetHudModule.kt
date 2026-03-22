@@ -13,6 +13,7 @@ object TargetHudModule {
 
     fun initialize() {
         ModuleStateStore.ensureModule(moduleId, defaultEnabled = false)
+        ModuleStateStore.ensureNumberSetting("${moduleId}:size", 1.0f)
 
         HudRenderCallback.EVENT.register(HudRenderCallback { context, deltaTracker ->
             if (!ModuleStateStore.isEnabled(moduleId)) return@HudRenderCallback

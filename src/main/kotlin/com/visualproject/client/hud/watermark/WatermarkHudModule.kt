@@ -15,6 +15,8 @@ object WatermarkHudModule {
     fun initialize() {
         ModuleStateStore.ensureModule(watermarkModuleId, defaultEnabled = false)
         ModuleStateStore.ensureSetting("${watermarkModuleId}:accent_sync", defaultValue = true)
+        ModuleStateStore.ensureSetting("${watermarkModuleId}:music_scan", defaultValue = true)
+        ModuleStateStore.ensureNumberSetting("${watermarkModuleId}:size", 1.0f)
 
         HudRenderCallback.EVENT.register(HudRenderCallback { context, deltaTracker ->
             if (!ModuleStateStore.isEnabled(watermarkModuleId)) return@HudRenderCallback
