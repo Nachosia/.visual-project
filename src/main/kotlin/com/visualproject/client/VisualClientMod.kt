@@ -1,6 +1,8 @@
 package com.visualproject.client
 
 import com.mojang.blaze3d.platform.InputConstants
+import com.visualproject.client.hud.armor.ArmorHudModule
+import com.visualproject.client.hud.potions.PotionHudModule
 import com.visualproject.client.hud.test.TestSdfHud
 import com.visualproject.client.hud.target.TargetHudModule
 import com.visualproject.client.hud.watermark.WatermarkHudModule
@@ -27,6 +29,7 @@ object VisualClientMod : ClientModInitializer {
     override fun onInitializeClient() {
         VisualFileSystem.initialize(LOGGER)
         ModuleStateStore.initialize()
+        VisualThemeSettings.initializeDefaults()
         ModuleStateStore.ensureModule(sdfTestModuleId, defaultEnabled = false)
         SdfShaderRegistry.registerEvent()
 
@@ -58,6 +61,8 @@ object VisualClientMod : ClientModInitializer {
         })
 
         WatermarkHudModule.initialize()
+        ArmorHudModule.initialize()
+        PotionHudModule.initialize()
         TargetHudModule.initialize()
 
         LOGGER.info("Visual Client initialized.")
