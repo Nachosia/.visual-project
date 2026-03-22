@@ -1,11 +1,11 @@
 package com.visualproject.client.hud.target
 
+import com.visualproject.client.VisualThemeSettings
 import com.visualproject.client.render.sdf.SdfGlowStyle
 import com.visualproject.client.render.sdf.SdfNeonBorderStyle
 import com.visualproject.client.render.sdf.SdfPanelRenderer
 import com.visualproject.client.render.sdf.SdfPanelStyle
 import com.visualproject.client.render.sdf.SdfShadeStyle
-import com.visualproject.client.ui.menu.VisualMenuTheme
 import com.visualproject.client.ui.menu.blendColor
 import com.visualproject.client.vText
 import net.minecraft.client.DeltaTracker
@@ -38,9 +38,9 @@ internal class TargetHudRenderer {
             borderWidthPx = 1.3f,
             radiusPx = TargetHudLayout.radius.toFloat(),
             innerGlow = SdfGlowStyle(0xFFFFFFFF.toInt(), radiusPx = 14f, strength = 0.04f, opacity = 0.03f),
-            outerGlow = SdfGlowStyle(VisualMenuTheme.accentStrong, radiusPx = 22f, strength = 0.14f, opacity = 0.08f),
+            outerGlow = SdfGlowStyle(VisualThemeSettings.accentStrong(), radiusPx = 22f, strength = 0.14f, opacity = 0.08f),
             shade = SdfShadeStyle(0x10FFFFFF, 0x16000000),
-            neonBorder = SdfNeonBorderStyle(0xA28A71FF.toInt(), widthPx = 1.0f, softnessPx = 5f, strength = 0.64f),
+            neonBorder = SdfNeonBorderStyle(VisualThemeSettings.withAlpha(VisualThemeSettings.neonBorder(), 0xA2), widthPx = 1.0f, softnessPx = 5f, strength = 0.64f),
         )
 
         fun preview(): SdfPanelStyle = SdfPanelStyle(
@@ -48,10 +48,10 @@ internal class TargetHudRenderer {
             borderColor = 0x88405273.toInt(),
             borderWidthPx = 1.1f,
             radiusPx = TargetHudLayout.previewRadius.toFloat(),
-            innerGlow = SdfGlowStyle(VisualMenuTheme.accentStrong, radiusPx = 12f, strength = 0.06f, opacity = 0.05f),
+            innerGlow = SdfGlowStyle(VisualThemeSettings.accentStrong(), radiusPx = 12f, strength = 0.06f, opacity = 0.05f),
             outerGlow = SdfGlowStyle(0xFF000000.toInt(), radiusPx = 14f, strength = 0.12f, opacity = 0.12f),
             shade = SdfShadeStyle(0x0EFFFFFF, 0x16000000),
-            neonBorder = SdfNeonBorderStyle(0x566B79FF, widthPx = 0.9f, softnessPx = 4f, strength = 0.34f),
+            neonBorder = SdfNeonBorderStyle(VisualThemeSettings.withAlpha(VisualThemeSettings.neonBorder(), 0x56), widthPx = 0.9f, softnessPx = 4f, strength = 0.34f),
         )
 
         fun barTrack(): SdfPanelStyle = SdfPanelStyle(
@@ -62,12 +62,12 @@ internal class TargetHudRenderer {
             innerGlow = SdfGlowStyle(0xFFFFFFFF.toInt(), radiusPx = 5f, strength = 0.02f, opacity = 0.02f),
             outerGlow = SdfGlowStyle(0x00000000, radiusPx = 0f, strength = 0f, opacity = 0f),
             shade = SdfShadeStyle(0x08FFFFFF, 0x10000000),
-            neonBorder = SdfNeonBorderStyle(0x345266C0, widthPx = 0.75f, softnessPx = 3.5f, strength = 0.20f),
+            neonBorder = SdfNeonBorderStyle(VisualThemeSettings.withAlpha(VisualThemeSettings.neonBorder(), 0x34), widthPx = 0.75f, softnessPx = 3.5f, strength = 0.20f),
         )
 
         fun barFill(ratio: Float): SdfPanelStyle {
-            val fill = blendColor(0xFFE86573.toInt(), VisualMenuTheme.accentStrong, ratio)
-            val glow = blendColor(0xFFFC9E87.toInt(), VisualMenuTheme.accentStrong, ratio)
+            val fill = blendColor(0xFFE86573.toInt(), VisualThemeSettings.accentStrong(), ratio)
+            val glow = blendColor(0xFFFC9E87.toInt(), VisualThemeSettings.accentStrong(), ratio)
             return SdfPanelStyle(
                 baseColor = fill,
                 borderColor = blendColor(fill, 0xFFFFFFFF.toInt(), 0.15f),
@@ -76,7 +76,7 @@ internal class TargetHudRenderer {
                 innerGlow = SdfGlowStyle(0xFFFFFFFF.toInt(), radiusPx = 6f, strength = 0.05f, opacity = 0.04f),
                 outerGlow = SdfGlowStyle(glow, radiusPx = 8f, strength = 0.16f, opacity = 0.08f),
                 shade = SdfShadeStyle(0x10FFFFFF, 0x0E000000),
-                neonBorder = SdfNeonBorderStyle(glow, widthPx = 0.9f, softnessPx = 4f, strength = 0.48f),
+                neonBorder = SdfNeonBorderStyle(blendColor(VisualThemeSettings.neonBorder(), glow, 0.45f), widthPx = 0.9f, softnessPx = 4f, strength = 0.48f),
             )
         }
 
@@ -86,20 +86,20 @@ internal class TargetHudRenderer {
             borderWidthPx = 1.0f,
             radiusPx = 7f,
             innerGlow = SdfGlowStyle(
-                color = if (filled) VisualMenuTheme.accentStrong else 0xFFFFFFFF.toInt(),
+                color = if (filled) VisualThemeSettings.accentStrong() else 0xFFFFFFFF.toInt(),
                 radiusPx = 8f,
                 strength = if (filled) 0.08f else 0.02f,
                 opacity = if (filled) 0.06f else 0.02f,
             ),
             outerGlow = SdfGlowStyle(
-                color = if (filled) VisualMenuTheme.accentStrong else 0xFF000000.toInt(),
+                color = if (filled) VisualThemeSettings.accentStrong() else 0xFF000000.toInt(),
                 radiusPx = 10f,
                 strength = if (filled) 0.10f else 0.08f,
                 opacity = if (filled) 0.06f else 0.08f,
             ),
             shade = SdfShadeStyle(0x08FFFFFF, 0x10000000),
             neonBorder = SdfNeonBorderStyle(
-                color = if (filled) 0x707187FF else 0x244D60B2,
+                color = if (filled) VisualThemeSettings.withAlpha(VisualThemeSettings.neonBorder(), 0x70) else VisualThemeSettings.withAlpha(VisualThemeSettings.neonBorder(), 0x24),
                 widthPx = if (filled) 0.9f else 0.75f,
                 softnessPx = 4f,
                 strength = if (filled) 0.38f else 0.14f,
@@ -111,43 +111,53 @@ internal class TargetHudRenderer {
             borderColor = 0x94405072.toInt(),
             borderWidthPx = 1.1f,
             radiusPx = 12f,
-            innerGlow = SdfGlowStyle(VisualMenuTheme.accentStrong, radiusPx = 12f, strength = 0.05f, opacity = 0.04f),
+            innerGlow = SdfGlowStyle(VisualThemeSettings.accentStrong(), radiusPx = 12f, strength = 0.05f, opacity = 0.04f),
             outerGlow = SdfGlowStyle(0xFF000000.toInt(), radiusPx = 14f, strength = 0.10f, opacity = 0.12f),
             shade = SdfShadeStyle(0x0CFFFFFF, 0x14000000),
-            neonBorder = SdfNeonBorderStyle(0x5A6A7EFF, widthPx = 0.9f, softnessPx = 4f, strength = 0.30f),
+            neonBorder = SdfNeonBorderStyle(VisualThemeSettings.withAlpha(VisualThemeSettings.neonBorder(), 0x5A), widthPx = 0.9f, softnessPx = 4f, strength = 0.30f),
         )
 
         fun sliderTrack(active: Boolean): SdfPanelStyle = SdfPanelStyle(
             baseColor = if (active) 0xCF172133.toInt() else 0xB71A2335.toInt(),
-            borderColor = if (active) 0xA752638B.toInt() else 0x863B4B67.toInt(),
+            borderColor = if (active) blendColor(0xA752638B.toInt(), VisualThemeSettings.accentStrong(), 0.35f) else 0x863B4B67.toInt(),
             borderWidthPx = 1.0f,
             radiusPx = 3f,
             innerGlow = SdfGlowStyle(0xFFFFFFFF.toInt(), radiusPx = 5f, strength = 0.02f, opacity = 0.02f),
-            outerGlow = SdfGlowStyle(VisualMenuTheme.accentStrong, radiusPx = 8f, strength = if (active) 0.12f else 0.08f, opacity = if (active) 0.08f else 0.04f),
+            outerGlow = SdfGlowStyle(VisualThemeSettings.accentStrong(), radiusPx = 8f, strength = if (active) 0.12f else 0.08f, opacity = if (active) 0.08f else 0.04f),
             shade = SdfShadeStyle(0x08FFFFFF, 0x0E000000),
-            neonBorder = SdfNeonBorderStyle(if (active) 0x746C82FF else 0x345164B6, widthPx = 0.8f, softnessPx = 3.5f, strength = if (active) 0.42f else 0.22f),
+            neonBorder = SdfNeonBorderStyle(
+                if (active) VisualThemeSettings.withAlpha(VisualThemeSettings.neonBorder(), 0x74) else VisualThemeSettings.withAlpha(VisualThemeSettings.neonBorder(), 0x34),
+                widthPx = 0.8f,
+                softnessPx = 3.5f,
+                strength = if (active) 0.42f else 0.22f,
+            ),
         )
 
         fun sliderFill(): SdfPanelStyle = SdfPanelStyle(
-            baseColor = VisualMenuTheme.accentStrong,
-            borderColor = 0xFFD2C8FF.toInt(),
+            baseColor = VisualThemeSettings.sliderFill(),
+            borderColor = blendColor(VisualThemeSettings.sliderFill(), 0xFFFFFFFF.toInt(), 0.18f),
             borderWidthPx = 0.8f,
             radiusPx = 2.5f,
             innerGlow = SdfGlowStyle(0xFFFFFFFF.toInt(), radiusPx = 5f, strength = 0.06f, opacity = 0.05f),
-            outerGlow = SdfGlowStyle(VisualMenuTheme.accentStrong, radiusPx = 8f, strength = 0.16f, opacity = 0.10f),
+            outerGlow = SdfGlowStyle(VisualThemeSettings.sliderFill(), radiusPx = 8f, strength = 0.16f, opacity = 0.10f),
             shade = SdfShadeStyle(0x10FFFFFF, 0x0A000000),
-            neonBorder = SdfNeonBorderStyle(0xD5B8FFFF.toInt(), widthPx = 0.9f, softnessPx = 4f, strength = 0.55f),
+            neonBorder = SdfNeonBorderStyle(VisualThemeSettings.withAlpha(VisualThemeSettings.neonBorder(), 0xD5), widthPx = 0.9f, softnessPx = 4f, strength = 0.55f),
         )
 
         fun sliderKnob(active: Boolean): SdfPanelStyle = SdfPanelStyle(
-            baseColor = 0xFFF0F2FF.toInt(),
-            borderColor = if (active) VisualMenuTheme.accentStrong else 0xFFB3BEDD.toInt(),
+            baseColor = VisualThemeSettings.sliderKnob(),
+            borderColor = if (active) blendColor(VisualThemeSettings.sliderKnob(), VisualThemeSettings.accentStrong(), 0.30f) else 0xFFB3BEDD.toInt(),
             borderWidthPx = 1.0f,
             radiusPx = 5f,
             innerGlow = SdfGlowStyle(0xFFFFFFFF.toInt(), radiusPx = 6f, strength = 0.06f, opacity = 0.06f),
-            outerGlow = SdfGlowStyle(if (active) VisualMenuTheme.accentStrong else 0xFFAAB6DB.toInt(), radiusPx = 8f, strength = 0.16f, opacity = if (active) 0.12f else 0.07f),
+            outerGlow = SdfGlowStyle(if (active) VisualThemeSettings.accentStrong() else 0xFFAAB6DB.toInt(), radiusPx = 8f, strength = 0.16f, opacity = if (active) 0.12f else 0.07f),
             shade = SdfShadeStyle(0x0EFFFFFF, 0x08000000),
-            neonBorder = SdfNeonBorderStyle(if (active) 0xCDB8FFFF.toInt() else 0x6FA5C2F4, widthPx = 0.9f, softnessPx = 4f, strength = if (active) 0.58f else 0.32f),
+            neonBorder = SdfNeonBorderStyle(
+                if (active) VisualThemeSettings.withAlpha(VisualThemeSettings.neonBorder(), 0xCD) else VisualThemeSettings.withAlpha(VisualThemeSettings.neonBorder(), 0x6F),
+                widthPx = 0.9f,
+                softnessPx = 4f,
+                strength = if (active) 0.58f else 0.32f,
+            ),
         )
     }
 
