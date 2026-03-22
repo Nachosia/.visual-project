@@ -8,6 +8,7 @@ import java.nio.file.Files
 import java.nio.file.Path
 import java.nio.file.StandardOpenOption
 import java.util.concurrent.ConcurrentHashMap
+import java.util.concurrent.CopyOnWriteArrayList
 
 object ModuleStateStore {
 
@@ -24,6 +25,7 @@ object ModuleStateStore {
     private val moduleSettingsState: MutableMap<String, Boolean> = ConcurrentHashMap()
     private val moduleNumberSettingsState: MutableMap<String, Float> = ConcurrentHashMap()
     private val moduleTextSettingsState: MutableMap<String, String> = ConcurrentHashMap()
+    private val moduleEnabledListeners = CopyOnWriteArrayList<(String, Boolean) -> Unit>()
 
     fun initialize() {
         ensureInitialized()
@@ -43,7 +45,15 @@ object ModuleStateStore {
     fun setEnabled(id: String, enabled: Boolean) {
         ensureInitialized()
         val previous = moduleEnabledState.put(id, enabled)
-        if (previous != enabled) persist()
+        if (previous != enabled) {
+            persist()
+            moduleEnabledListeners.forEach { listener ->
+                runCatching { listener(id, enabled) }
+                    .onFailure { throwable ->
+                        logger.warn("module-state: enabled-listener failed id='{}' enabled={}", id, enabled, throwable)
+                    }
+            }
+        }
     }
 
     fun toggleEnabled(id: String): Boolean {
@@ -51,6 +61,11 @@ object ModuleStateStore {
         val next = !isEnabled(id)
         setEnabled(id, next)
         return next
+    }
+
+    fun addModuleEnabledListener(listener: (String, Boolean) -> Unit) {
+        ensureInitialized()
+        moduleEnabledListeners += listener
     }
 
     fun ensureSetting(key: String, defaultValue: Boolean = false) {

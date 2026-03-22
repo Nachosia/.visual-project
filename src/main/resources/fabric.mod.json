@@ -3,6 +3,7 @@
   "id": "visualclient",
   "version": "${version}",
   "name": "Visual Client",
+  "icon": "assets/visualclient/icon.png",
   "description": "Client-side cosmetic visuals with custom GUI foundations.",
   "authors": [
     "You"

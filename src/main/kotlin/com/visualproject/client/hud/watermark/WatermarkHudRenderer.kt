@@ -32,6 +32,9 @@ class WatermarkHudRenderer(
 ) {
     companion object {
         private const val watermarkModuleId = "watermark"
+        private val watermarkEyeTexture = Identifier.fromNamespaceAndPath("visualclient", "textures/gui/watermark_eye.png")
+        private const val watermarkEyeTextureWidth = 512
+        private const val watermarkEyeTextureHeight = 312
     }
 
     private data class ArtworkResolution(
@@ -256,34 +259,25 @@ class WatermarkHudRenderer(
         val iconY = bounds.top + (WatermarkHudTheme.compactHeight - iconSize) / 2
         val baselineY = bounds.top + ((WatermarkHudTheme.compactHeight - font.lineHeight) / 2)
 
-        drawRoundedPanel(
-            context,
-            iconX,
-            iconY,
-            iconSize,
-            iconSize,
-            withAlpha(WatermarkHudTheme.iconFill, alpha),
-            withAlpha(WatermarkHudTheme.iconBorder, alpha),
-            6,
-        )
-
-        context.drawString(font, vBrandText("N"), iconX + 4, iconY + 3, withAlpha(WatermarkHudTheme.textPrimary, alpha), false)
+        drawEyeIcon(context, iconX, iconY, iconSize, alpha)
 
         val titleX = iconX + iconSize + 8
+        val ping = resolvePing(client)
+        val fps = client.fps
+        val infoText = "${ping}ms  ${fps}fps"
+        val infoWidth = font.width(vText(infoText))
+        val infoX = bounds.left + bounds.width - WatermarkHudTheme.paddingX - infoWidth
+        val titleMaxWidth = (infoX - 8 - titleX).coerceAtLeast(24)
+        val title = clipStyledText("Hypnosia Visual", titleMaxWidth, font)
         context.drawString(
             font,
-            vBrandText("Nachosia"),
+            title,
             titleX,
             baselineY,
             withAlpha(WatermarkHudTheme.textPrimary, alpha),
             false,
         )
 
-        val ping = resolvePing(client)
-        val fps = client.fps
-        val infoText = "${ping}ms  ${fps}fps"
-        val infoWidth = font.width(vText(infoText))
-        val infoX = bounds.left + bounds.width - WatermarkHudTheme.paddingX - infoWidth
         context.drawString(
             font,
             vText(infoText),
@@ -320,6 +314,33 @@ class WatermarkHudRenderer(
         context.drawString(font, clippedTitle, textX, textY, withAlpha(WatermarkHudTheme.textPrimary, alpha), false)
 
         context.drawString(font, vText(rightMarker), rightMarkerX, textY, withAlpha(WatermarkHudTheme.textMuted, alpha), false)
+    }
+
+    private fun drawEyeIcon(
+        context: GuiGraphics,
+        x: Int,
+        y: Int,
+        size: Int,
+        alpha: Float,
+    ) {
+        val drawWidth = size
+        val drawHeight = ((size.toFloat() * watermarkEyeTextureHeight) / watermarkEyeTextureWidth).roundToInt().coerceAtLeast(1)
+        val drawY = y + ((size - drawHeight) / 2)
+        context.blit(
+            RenderPipelines.GUI_TEXTURED,
+            watermarkEyeTexture,
+            x,
+            drawY,
+            0f,
+            0f,
+            drawWidth,
+            drawHeight,
+            watermarkEyeTextureWidth,
+            watermarkEyeTextureHeight,
+            watermarkEyeTextureWidth,
+            watermarkEyeTextureHeight,
+            withAlpha(VisualThemeSettings.neonBorder(), alpha),
+        )
     }
 
     private fun drawExpandedMusic(

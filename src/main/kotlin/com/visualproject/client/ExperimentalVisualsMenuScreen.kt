@@ -1,6 +1,8 @@
 package com.visualproject.client
 
 import com.mojang.blaze3d.platform.NativeImage
+import com.visualproject.client.audio.CustomSoundRegistry
+import com.visualproject.client.notifications.NotificationsSettings
 import com.visualproject.client.render.sdf.SdfGlowStyle
 import com.visualproject.client.render.sdf.SdfNeonBorderStyle
 import com.visualproject.client.render.sdf.SdfPanelRenderer
@@ -26,6 +28,7 @@ import java.awt.image.BufferedImage
 import java.io.ByteArrayInputStream
 import java.io.ByteArrayOutputStream
 import javax.imageio.ImageIO
+import kotlin.math.abs
 import kotlin.math.ceil
 import kotlin.math.max
 import kotlin.math.min
@@ -73,6 +76,12 @@ class ExperimentalVisualsMenuScreen : Screen(Component.empty()) {
         val toggleRect: IntRect,
     )
 
+    private data class ChoiceOptionLayout(
+        val value: String,
+        val label: String,
+        val rect: IntRect,
+    )
+
     private sealed class SettingRowLayout(
         val key: String,
         val label: String,
@@ -101,6 +110,18 @@ class ExperimentalVisualsMenuScreen : Screen(Component.empty()) {
             val min: Float,
             val max: Float,
         ) : SettingRowLayout(key, label, rect)
+
+        class Choice(
+            key: String,
+            label: String,
+            rect: IntRect,
+            val options: List<ChoiceOptionLayout>,
+        ) : SettingRowLayout(key, label, rect)
+
+        class Section(
+            label: String,
+            rect: IntRect,
+        ) : SettingRowLayout(label, label, rect)
     }
 
     private object Theme {
@@ -141,7 +162,6 @@ class ExperimentalVisualsMenuScreen : Screen(Component.empty()) {
         VisualMenuModuleEntry("full_bright", "Full Bright", "F", VisualMenuTab.VISUALS),
         VisualMenuModuleEntry("hit_bubble", "Hit Bubble", "U", VisualMenuTab.VISUALS),
         VisualMenuModuleEntry("hit_color", "Hit Color", "K", VisualMenuTab.VISUALS),
-        VisualMenuModuleEntry("hit_sounds", "Hit Sounds", "N", VisualMenuTab.VISUALS),
         VisualMenuModuleEntry("hitbox_customizer", "Hitbox Customizer", "Z", VisualMenuTab.VISUALS),
         VisualMenuModuleEntry("jump_circle", "Jump Circles", "J", VisualMenuTab.VISUALS),
         VisualMenuModuleEntry("nimb", "Nimb", "N", VisualMenuTab.VISUALS),
@@ -190,6 +210,7 @@ class ExperimentalVisualsMenuScreen : Screen(Component.empty()) {
 
     private lateinit var searchBox: EditBox
     private val settingInputs = LinkedHashMap<String, EditBox>()
+    private val toggleProgressByKey = HashMap<String, Float>()
     private val hueWheelTextureId = Identifier.fromNamespaceAndPath("visualclient", "theme_picker_wheel")
     private val saturationValueTextureId = Identifier.fromNamespaceAndPath("visualclient", "theme_picker_square")
 
@@ -334,6 +355,17 @@ class ExperimentalVisualsMenuScreen : Screen(Component.empty()) {
                 return true
             }
 
+            settingChoiceRows(layout).firstNotNullOfOrNull { row ->
+                row.options.firstOrNull { it.rect.contains(mouseX, mouseY) }?.let { option -> row to option }
+            }?.let { (row, option) ->
+                ModuleStateStore.setTextSetting(row.key, option.value)
+                normalizeNotificationChoiceState(row.key)
+                if (choiceAffectsLayout(row.key)) {
+                    rebuildMenuWidgets()
+                }
+                return true
+            }
+
             settingSliderRows(layout).firstOrNull { it.rect.contains(mouseX, mouseY) }?.let { row ->
                 activeSliderKey = row.key
                 updateSliderValue(row, mouseX)
@@ -428,6 +460,12 @@ class ExperimentalVisualsMenuScreen : Screen(Component.empty()) {
                     }
 
                     "gif_hud:file_name" -> ModuleStateStore.setTextSetting(row.key, sanitizeFileName(raw))
+                    NotificationsSettings.moduleEnableSoundFileKey,
+                    NotificationsSettings.moduleDisableSoundFileKey,
+                    NotificationsSettings.stage1SoundFileKey,
+                    NotificationsSettings.stage2SoundFileKey,
+                    NotificationsSettings.hitSoundFileKey,
+                    NotificationsSettings.critSoundFileKey -> ModuleStateStore.setTextSetting(row.key, sanitizeSoundFileName(raw))
                     else -> ModuleStateStore.setTextSetting(row.key, raw.trim())
                 }
             }
@@ -607,7 +645,7 @@ class ExperimentalVisualsMenuScreen : Screen(Component.empty()) {
                 false,
             )
 
-            drawToggle(context, card.toggleRect, enabled)
+            drawToggle(context, card.toggleRect, enabled, "module:${card.module.id}")
         }
 
         context.disableScissor()
@@ -674,6 +712,10 @@ class ExperimentalVisualsMenuScreen : Screen(Component.empty()) {
         )
         settingRows(layout).forEach { row ->
             when (row) {
+                is SettingRowLayout.Section -> {
+                    context.drawString(font, vText(row.label), row.rect.x, row.rect.y + 2, 0xFF8A97BA.toInt(), false)
+                }
+
                 is SettingRowLayout.Toggle -> {
                     val hovered = row.rect.contains(mouseX, mouseY)
                     val enabled = ModuleStateStore.isSettingEnabled(row.key)
@@ -681,14 +723,20 @@ class ExperimentalVisualsMenuScreen : Screen(Component.empty()) {
                     val clipRect = SdfPanelRenderer.ClipRect(viewport.x, viewport.y, viewport.width, viewport.height)
                     SdfPanelRenderer.draw(context, row.rect.x, row.rect.y, row.rect.width, row.rect.height, rowStyle, clipRect)
                     context.drawString(font, vText(row.label), row.rect.x + 14, row.rect.y + 11, 0xFFD8DFF8.toInt(), false)
-                    drawToggle(context, row.switchRect, enabled)
+                    drawToggle(context, row.switchRect, enabled, "setting:${row.key}")
                 }
 
                 is SettingRowLayout.Input -> {
-                    val rowStyle = inputRowStyle()
+                    val invalid = isMissingSoundSetting(row.key)
+                    val rowStyle = inputRowStyle(invalid)
                     val clipRect = SdfPanelRenderer.ClipRect(viewport.x, viewport.y, viewport.width, viewport.height)
                     SdfPanelRenderer.draw(context, row.rect.x, row.rect.y, row.rect.width, row.rect.height, rowStyle, clipRect)
                     context.drawString(font, vText(row.label), row.rect.x + 14, row.rect.y + 10, 0xFFD8DFF8.toInt(), false)
+                    if (invalid) {
+                        val status = "Missing"
+                        val statusWidth = font.width(vText(status))
+                        context.drawString(font, vText(status), row.rect.x + row.rect.width - statusWidth - 14, row.rect.y + 10, 0xFFFF8181.toInt(), false)
+                    }
                     val textRect = inputTextRect(row)
                     drawRoundedPanel(
                         context,
@@ -701,6 +749,38 @@ class ExperimentalVisualsMenuScreen : Screen(Component.empty()) {
                         11,
                     )
                     drawThemeFieldSwatch(context, row)
+                }
+
+                is SettingRowLayout.Choice -> {
+                    val clipRect = SdfPanelRenderer.ClipRect(viewport.x, viewport.y, viewport.width, viewport.height)
+                    SdfPanelRenderer.draw(context, row.rect.x, row.rect.y, row.rect.width, row.rect.height, inputRowStyle(), clipRect)
+                    context.drawString(font, vText(row.label), row.rect.x + 14, row.rect.y + 10, 0xFFD8DFF8.toInt(), false)
+                    val selectedValue = choiceValueFor(row.key, row.options.firstOrNull()?.value.orEmpty())
+                    row.options.forEach { option ->
+                        val hovered = option.rect.contains(mouseX, mouseY)
+                        val selected = selectedValue == option.value
+                        val fill = when {
+                            selected -> blendColor(0xFF19243A.toInt(), sliderFillColor(), 0.78f)
+                            hovered -> 0xD1141D30.toInt()
+                            else -> 0xC910182A.toInt()
+                        }
+                        val border = when {
+                            selected -> blendColor(accentStrongColor(), neonBorderColor(), 0.35f)
+                            hovered -> blendColor(0xFF425270.toInt(), accentStrongColor(), 0.18f)
+                            else -> 0x6A33415E
+                        }
+                        drawRoundedPanel(context, option.rect.x, option.rect.y, option.rect.width, option.rect.height, fill, border, 9)
+                        val text = vText(option.label)
+                        val textWidth = font.width(text)
+                        context.drawString(
+                            font,
+                            text,
+                            option.rect.x + ((option.rect.width - textWidth) / 2),
+                            option.rect.y + 5,
+                            if (selected) 0xFFF7F4FF.toInt() else 0xFFB7C3E2.toInt(),
+                            false,
+                        )
+                    }
                 }
 
                 is SettingRowLayout.Slider -> {
@@ -770,6 +850,7 @@ class ExperimentalVisualsMenuScreen : Screen(Component.empty()) {
             context,
             IntRect(toggleRow.x + toggleRow.width - 44, toggleRow.y + 8, 32, 18),
             enabled = true,
+            animationKey = "theme_preview_toggle",
         )
 
         val sliderTrackX = previewX + 30
@@ -798,7 +879,7 @@ class ExperimentalVisualsMenuScreen : Screen(Component.empty()) {
         context.drawString(font, vText(if (selected) "T" else "N"), rect.x + 23, rect.y + 22, 0xFFD6DDF7.toInt(), false)
         context.drawString(font, fitStyledText(font, title, rect.width - 116), rect.x + 50, rect.y + 16, 0xFFF4F6FF.toInt(), false)
         context.drawString(font, fitStyledText(font, subtitle, rect.width - 116), rect.x + 50, rect.y + 31, 0xFF7E8BAE.toInt(), false)
-        drawToggle(context, IntRect(rect.x + rect.width - 48, rect.y + 28, 34, 18), enabled)
+        drawToggle(context, IntRect(rect.x + rect.width - 48, rect.y + 28, 34, 18), enabled, "theme_sample:$title")
     }
 
     private fun drawThemeSlider(
@@ -918,6 +999,12 @@ class ExperimentalVisualsMenuScreen : Screen(Component.empty()) {
         val width = layout.settings.width - 28
         var currentY = layout.settings.y + 56 - settingScroll
 
+        fun addSection(label: String) {
+            val rect = IntRect(startX, currentY, width, 18)
+            rows += SettingRowLayout.Section(label, rect)
+            currentY += 22
+        }
+
         fun addToggle(key: String, label: String) {
             val rect = IntRect(startX, currentY, width, Theme.settingsRowHeight)
             val switchRect = IntRect(rect.x + rect.width - 40, rect.y + 7, 30, 18)
@@ -939,6 +1026,19 @@ class ExperimentalVisualsMenuScreen : Screen(Component.empty()) {
             currentY += Theme.inputRowHeight + 10
         }
 
+        fun addChoice(key: String, label: String, vararg options: Pair<String, String>) {
+            val rect = IntRect(startX, currentY, width, Theme.inputRowHeight)
+            val optionsY = rect.y + 22
+            val optionGap = 8
+            val optionWidth = ((rect.width - 20 - ((options.size - 1) * optionGap)) / options.size).coerceAtLeast(34)
+            val layouts = options.mapIndexed { index, option ->
+                val x = rect.x + 10 + (index * (optionWidth + optionGap))
+                ChoiceOptionLayout(option.first, option.second, IntRect(x, optionsY, optionWidth, 18))
+            }
+            rows += SettingRowLayout.Choice(key, label, rect, layouts)
+            currentY += Theme.inputRowHeight + 10
+        }
+
         if (activeTab == VisualMenuTab.THEME) {
             addInput(VisualThemeSettings.accentColorKey, "Accent Glow", "#RRGGBB")
             addInput(VisualThemeSettings.neonBorderColorKey, "Neon Border", "#RRGGBB")
@@ -949,9 +1049,54 @@ class ExperimentalVisualsMenuScreen : Screen(Component.empty()) {
 
         val selectedModule = modules.firstOrNull { it.id == selectedModuleId } ?: return emptyList()
 
+        if (selectedModule.id == NotificationsSettings.moduleId) {
+            val mode = choiceValueFor(NotificationsSettings.modeKey, "1")
+            val hitMode = choiceValueFor(NotificationsSettings.hitSoundModeKey, "classic")
+            val critMode = choiceValueFor(NotificationsSettings.critSoundModeKey, "classic")
+
+            addSection("Custom Sound Volume")
+            addSlider(NotificationsSettings.globalCustomSoundVolumeKey, "Global Custom Sound Volume", 0f, 100f)
+
+            addSection("Module Toggle Sounds")
+            addToggle(NotificationsSettings.moduleEnableSoundEnabledKey, "Enable Custom Sound")
+            addInput(NotificationsSettings.moduleEnableSoundFileKey, "Enable Sound File", "name / name.mp3")
+            addSlider(NotificationsSettings.moduleEnableSoundVolumeKey, "Enable Sound Volume", 0f, 100f)
+            addToggle(NotificationsSettings.moduleDisableSoundEnabledKey, "Disable Custom Sound")
+            addInput(NotificationsSettings.moduleDisableSoundFileKey, "Disable Sound File", "name / name.mp3")
+            addSlider(NotificationsSettings.moduleDisableSoundVolumeKey, "Disable Sound Volume", 0f, 100f)
+
+            addSection("Potion Warnings")
+            addChoice(NotificationsSettings.modeKey, "Notification Mode", "1" to "1", "2" to "2")
+            addSlider(NotificationsSettings.stage1LeadKey, "Stage 1 Lead (Final)", 0.1f, 30f)
+            addToggle(NotificationsSettings.stage1SoundEnabledKey, "Stage 1 Custom Sound")
+            addInput(NotificationsSettings.stage1SoundFileKey, "Stage 1 Sound File", "name / name.mp3")
+            addSlider(NotificationsSettings.stage1SoundVolumeKey, "Stage 1 Volume", 0f, 100f)
+            if (mode == "2") {
+                addSlider(NotificationsSettings.stage2LeadKey, "Stage 2 Lead (Early)", 0.1f, 30f)
+                addToggle(NotificationsSettings.stage2SoundEnabledKey, "Stage 2 Custom Sound")
+                addInput(NotificationsSettings.stage2SoundFileKey, "Stage 2 Sound File", "name / name.mp3")
+                addSlider(NotificationsSettings.stage2SoundVolumeKey, "Stage 2 Volume", 0f, 100f)
+            }
+            addSlider(NotificationsSettings.repeatPeriodKey, "Sound Repeat Period", 0.1f, 10f)
+
+            addSection("Hit / Crit Sounds")
+            addChoice(NotificationsSettings.hitSoundModeKey, "Hit Sound", "classic" to "Classic", "custom" to "Custom")
+            if (hitMode == "custom") {
+                addInput(NotificationsSettings.hitSoundFileKey, "Hit Sound File", "name / name.mp3")
+                addSlider(NotificationsSettings.hitSoundVolumeKey, "Hit Sound Volume", 0f, 100f)
+            }
+            addChoice(NotificationsSettings.critSoundModeKey, "Crit Sound", "classic" to "Classic", "custom" to "Custom")
+            if (critMode == "custom") {
+                addInput(NotificationsSettings.critSoundFileKey, "Crit Sound File", "name / name.mp3")
+                addSlider(NotificationsSettings.critSoundVolumeKey, "Crit Sound Volume", 0f, 100f)
+            }
+            return rows
+        }
+
         addToggle("${selectedModule.id}:visible_hud", "Visible In HUD")
         if (selectedModule.tab == VisualMenuTab.HUD) {
-            addSlider("${selectedModule.id}:size", "Size", 0.5f, 3f)
+            val minSize = if (selectedModule.id == "gif_hud") 0.1f else 0.5f
+            addSlider("${selectedModule.id}:size", "Size", minSize, 3f)
         }
         if (selectedModule.id != "gif_hud") {
             addToggle("${selectedModule.id}:accent_sync", "Accent Sync")
@@ -979,6 +1124,10 @@ class ExperimentalVisualsMenuScreen : Screen(Component.empty()) {
 
     private fun settingToggleRows(layout: ScreenLayout): List<SettingRowLayout.Toggle> {
         return settingRows(layout).filterIsInstance<SettingRowLayout.Toggle>()
+    }
+
+    private fun settingChoiceRows(layout: ScreenLayout): List<SettingRowLayout.Choice> {
+        return settingRows(layout).filterIsInstance<SettingRowLayout.Choice>()
     }
 
     private fun settingInputRows(layout: ScreenLayout): List<SettingRowLayout.Input> {
@@ -1362,10 +1511,62 @@ class ExperimentalVisualsMenuScreen : Screen(Component.empty()) {
         return "#${compact.uppercase()}"
     }
 
+    private fun sanitizeSoundFileName(raw: String): String {
+        return CustomSoundRegistry.sanitizeForStorage(raw)
+    }
+
     private fun sanitizeFileName(raw: String): String {
         return raw.trim()
             .substringAfterLast('/')
             .substringAfterLast('\\')
+    }
+
+    private fun choiceValueFor(key: String, fallback: String): String {
+        val raw = ModuleStateStore.getTextSetting(key, fallback).trim()
+        return if (raw.isBlank()) fallback else raw
+    }
+
+    private fun choiceAffectsLayout(key: String): Boolean {
+        return key == NotificationsSettings.modeKey ||
+            key == NotificationsSettings.hitSoundModeKey ||
+            key == NotificationsSettings.critSoundModeKey
+    }
+
+    private fun normalizeNotificationChoiceState(changedKey: String) {
+        if (!changedKey.startsWith("${NotificationsSettings.moduleId}:")) return
+
+        ModuleStateStore.setTextSetting(
+            NotificationsSettings.modeKey,
+            if (choiceValueFor(NotificationsSettings.modeKey, "1") == "2") "2" else "1",
+        )
+        ModuleStateStore.setTextSetting(
+            NotificationsSettings.hitSoundModeKey,
+            if (choiceValueFor(NotificationsSettings.hitSoundModeKey, "classic").equals("custom", ignoreCase = true)) "custom" else "classic",
+        )
+        ModuleStateStore.setTextSetting(
+            NotificationsSettings.critSoundModeKey,
+            if (choiceValueFor(NotificationsSettings.critSoundModeKey, "classic").equals("custom", ignoreCase = true)) "custom" else "classic",
+        )
+
+        val stage1 = ModuleStateStore.getNumberSetting(NotificationsSettings.stage1LeadKey, 1.0f).coerceIn(0.1f, 30.0f)
+        val stage2 = ModuleStateStore.getNumberSetting(NotificationsSettings.stage2LeadKey, 5.0f).coerceIn(0.1f, 30.0f)
+        ModuleStateStore.setNumberSetting(NotificationsSettings.stage1LeadKey, min(stage1, stage2))
+        ModuleStateStore.setNumberSetting(NotificationsSettings.stage2LeadKey, max(stage1, stage2))
+    }
+
+    private fun isMissingSoundSetting(key: String): Boolean {
+        if (key != NotificationsSettings.moduleEnableSoundFileKey &&
+            key != NotificationsSettings.moduleDisableSoundFileKey &&
+            key != NotificationsSettings.stage1SoundFileKey &&
+            key != NotificationsSettings.stage2SoundFileKey &&
+            key != NotificationsSettings.hitSoundFileKey &&
+            key != NotificationsSettings.critSoundFileKey
+        ) {
+            return false
+        }
+
+        val value = ModuleStateStore.getTextSetting(key, "").trim()
+        return value.isNotBlank() && !CustomSoundRegistry.exists(value)
     }
 
     private fun parseColorSetting(value: String, fallback: Int): Int {
@@ -1392,6 +1593,16 @@ class ExperimentalVisualsMenuScreen : Screen(Component.empty()) {
         val value = when (row.key) {
             "gif_hud:chroma_key_strength" -> (kotlin.math.round(rawValue * 100f) / 100f)
             "gif_hud:scale" -> (kotlin.math.round(rawValue * 10f) / 10f)
+            NotificationsSettings.globalCustomSoundVolumeKey,
+            NotificationsSettings.moduleEnableSoundVolumeKey,
+            NotificationsSettings.moduleDisableSoundVolumeKey,
+            NotificationsSettings.stage1SoundVolumeKey,
+            NotificationsSettings.stage2SoundVolumeKey,
+            NotificationsSettings.hitSoundVolumeKey,
+            NotificationsSettings.critSoundVolumeKey -> kotlin.math.round(rawValue)
+            NotificationsSettings.stage1LeadKey,
+            NotificationsSettings.stage2LeadKey,
+            NotificationsSettings.repeatPeriodKey -> kotlin.math.round(rawValue * 10f) / 10f
             else -> if (row.key.endsWith(":size")) {
                 kotlin.math.round(rawValue * 10f) / 10f
             } else {
@@ -1399,12 +1610,23 @@ class ExperimentalVisualsMenuScreen : Screen(Component.empty()) {
             }
         }
         ModuleStateStore.setNumberSetting(row.key, value)
+        normalizeNotificationChoiceState(row.key)
     }
 
     private fun formatSliderValue(key: String, value: Float): String {
         return when (key) {
             "gif_hud:chroma_key_strength" -> "${(value * 100f).roundToInt()}%"
             "gif_hud:scale" -> "${String.format(java.util.Locale.US, "%.1f", value)}x"
+            NotificationsSettings.globalCustomSoundVolumeKey,
+            NotificationsSettings.moduleEnableSoundVolumeKey,
+            NotificationsSettings.moduleDisableSoundVolumeKey,
+            NotificationsSettings.stage1SoundVolumeKey,
+            NotificationsSettings.stage2SoundVolumeKey,
+            NotificationsSettings.hitSoundVolumeKey,
+            NotificationsSettings.critSoundVolumeKey -> "${value.roundToInt()}%"
+            NotificationsSettings.stage1LeadKey,
+            NotificationsSettings.stage2LeadKey,
+            NotificationsSettings.repeatPeriodKey -> "${String.format(java.util.Locale.US, "%.1f", value)}s"
             else -> if (key.endsWith(":size")) {
                 "${String.format(java.util.Locale.US, "%.1f", value)}x"
             } else {
@@ -1641,29 +1863,40 @@ class ExperimentalVisualsMenuScreen : Screen(Component.empty()) {
         )
     }
 
-    private fun inputRowStyle(): SdfPanelStyle {
+    private fun inputRowStyle(invalid: Boolean = false): SdfPanelStyle {
+        val borderColor = if (invalid) 0xFF7B3A44.toInt() else 0xFF33415F.toInt()
+        val neonColor = if (invalid) 0xA0FF7A7A.toInt() else VisualThemeSettings.withAlpha(neonBorderColor(), 0x42)
+        val glowColor = if (invalid) 0xFFFF7676.toInt() else accentStrongColor()
         return SdfPanelStyle(
             baseColor = 0xFF111A2D.toInt(),
-            borderColor = 0xFF33415F.toInt(),
+            borderColor = borderColor,
             borderWidthPx = 1f,
             radiusPx = 14f,
             innerGlow = SdfGlowStyle(0xFFFFFFFF.toInt(), radiusPx = 8f, strength = 0.02f, opacity = 0.02f),
-            outerGlow = SdfGlowStyle(accentStrongColor(), radiusPx = 18f, strength = 0.10f, opacity = 0.05f),
+            outerGlow = SdfGlowStyle(glowColor, radiusPx = 18f, strength = 0.10f, opacity = if (invalid) 0.08f else 0.05f),
             shade = SdfShadeStyle(0x0EFFFFFF, 0x14000000),
-            neonBorder = SdfNeonBorderStyle(VisualThemeSettings.withAlpha(neonBorderColor(), 0x42), widthPx = 0.9f, softnessPx = 4.5f, strength = 0.30f),
+            neonBorder = SdfNeonBorderStyle(neonColor, widthPx = 0.9f, softnessPx = 4.5f, strength = if (invalid) 0.48f else 0.30f),
         )
     }
 
-    private fun drawToggle(context: GuiGraphics, rect: IntRect, enabled: Boolean) {
-        val trackFill = if (enabled) VisualThemeSettings.withAlpha(sliderFillColor(), 0xCC) else 0xAA1A2436.toInt()
-        val trackBorder = if (enabled) accentStrongColor() else 0x7A3E4C68
+    private fun drawToggle(context: GuiGraphics, rect: IntRect, enabled: Boolean, animationKey: String) {
+        val target = if (enabled) 1f else 0f
+        val current = toggleProgressByKey[animationKey] ?: target
+        val next = current + (target - current) * 0.26f
+        val settled = if (abs(target - next) < 0.002f) target else next
+        toggleProgressByKey[animationKey] = settled
+
+        val trackFill = blendColor(0xC617202F.toInt(), VisualThemeSettings.withAlpha(sliderFillColor(), 0xD6), settled)
+        val trackBorder = blendColor(0x7A394866, blendColor(accentStrongColor(), neonBorderColor(), 0.35f), settled)
         drawRoundedPanel(context, rect.x, rect.y, rect.width, rect.height, trackFill, trackBorder, rect.height / 2)
 
         val knobRadius = ((rect.height - 6) / 2).coerceAtLeast(4)
-        val knobCenterX = if (enabled) rect.x + rect.width - knobRadius - 3 else rect.x + knobRadius + 3
+        val minCenterX = rect.x + knobRadius + 3
+        val maxCenterX = rect.x + rect.width - knobRadius - 3
+        val knobCenterX = (minCenterX + (maxCenterX - minCenterX) * settled).toInt()
         val knobCenterY = rect.y + rect.height / 2
 
-        if (enabled) {
+        if (settled > 0f) {
             fillRoundedRect(
                 context,
                 knobCenterX - knobRadius - 1,
@@ -1671,7 +1904,7 @@ class ExperimentalVisualsMenuScreen : Screen(Component.empty()) {
                 knobRadius * 2 + 2,
                 knobRadius * 2 + 2,
                 knobRadius + 1,
-                VisualThemeSettings.withAlpha(accentStrongColor(), 0x6A),
+                VisualThemeSettings.withAlpha(accentStrongColor(), (0x6A * settled).toInt().coerceIn(0, 0x6A)),
             )
         }
         drawRoundedPanel(

@@ -21,6 +21,7 @@ val isWindowsHost = System.getProperty("os.name")
 val nativeBridgeProjectDir = layout.projectDirectory.dir("native/VisualMediaBridge")
 val nativeBridgePublishDir = layout.buildDirectory.dir("native-bridge/win-x64")
 val nativeBridgeResourcesDir = layout.buildDirectory.dir("generated/resources/main/native/win-x64")
+val bundledLibrary by configurations.creating
 
 val publishNativeMediaBridge by tasks.registering(Exec::class) {
 	onlyIf { isWindowsHost }
@@ -74,6 +75,8 @@ dependencies {
 	modImplementation("net.fabricmc.fabric-api:fabric-api:${providers.gradleProperty("fabric_api_version").get()}")
 	modImplementation("net.fabricmc:fabric-language-kotlin:${providers.gradleProperty("fabric_kotlin_version").get()}")
 	modImplementation("com.daqem.uilib:uilib-fabric:19.1.0")
+	implementation("javazoom:jlayer:1.0.1")
+	bundledLibrary("javazoom:jlayer:1.0.1")
 }
 
 tasks.processResources {
@@ -109,7 +112,11 @@ java {
 }
 
 tasks.jar {
+	duplicatesStrategy = DuplicatesStrategy.EXCLUDE
 	inputs.property("archivesName", base.archivesName)
+	from({
+		bundledLibrary.files.map(::zipTree)
+	})
 
 	from("LICENSE") {
 		rename { "${it}_${base.archivesName.get()}" }

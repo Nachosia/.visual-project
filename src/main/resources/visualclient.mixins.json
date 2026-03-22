@@ -3,7 +3,8 @@
   "package": "com.visualproject.client.mixin",
   "compatibilityLevel": "JAVA_21",
   "mixins": [
-    "GameRendererMixin"
+    "GameRendererMixin",
+    "SoundManagerMixin"
   ],
   "injectors": {
     "defaultRequire": 1

@@ -8,6 +8,7 @@ import com.visualproject.client.hud.potions.PotionHudModule
 import com.visualproject.client.hud.test.TestSdfHud
 import com.visualproject.client.hud.target.TargetHudModule
 import com.visualproject.client.hud.watermark.WatermarkHudModule
+import com.visualproject.client.notifications.NotificationsModule
 import com.visualproject.client.render.sdf.SdfShaderRegistry
 import net.fabricmc.api.ClientModInitializer
 import net.fabricmc.fabric.api.client.event.lifecycle.v1.ClientTickEvents
@@ -67,6 +68,7 @@ object VisualClientMod : ClientModInitializer {
         ArmorHudModule.initialize()
         CooldownsHudModule.initialize()
         GifHudModule.initialize()
+        NotificationsModule.initialize()
         PotionHudModule.initialize()
         TargetHudModule.initialize()
 
