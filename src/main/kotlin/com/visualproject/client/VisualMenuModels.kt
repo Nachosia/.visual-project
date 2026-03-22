@@ -4,6 +4,7 @@ enum class VisualMenuTab(val title: String) {
     VISUALS("Visuals"),
     HUD("HUD"),
     UTILITIES("Utilities"),
+    THEME("Theme"),
 }
 
 data class VisualMenuModuleEntry(
