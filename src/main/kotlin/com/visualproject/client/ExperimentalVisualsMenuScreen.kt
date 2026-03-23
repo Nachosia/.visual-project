@@ -461,6 +461,8 @@ class ExperimentalVisualsMenuScreen : Screen(Component.empty()) {
                     NotificationsSettings.moduleDisableSoundFileKey,
                     NotificationsSettings.stage1SoundFileKey,
                     NotificationsSettings.stage2SoundFileKey,
+                    NotificationsSettings.armorStage1SoundFileKey,
+                    NotificationsSettings.armorStage2SoundFileKey,
                     NotificationsSettings.hitSoundFileKey,
                     NotificationsSettings.critSoundFileKey -> ModuleStateStore.setTextSetting(row.key, sanitizeSoundFileName(raw))
                     else -> ModuleStateStore.setTextSetting(row.key, raw.trim())
@@ -1228,6 +1230,19 @@ class ExperimentalVisualsMenuScreen : Screen(Component.empty()) {
             }
             addSlider(NotificationsSettings.repeatPeriodKey, "Sound Repeat Period", 0.1f, 10f)
 
+            addSection("Armor Warnings")
+            addToggle(NotificationsSettings.armorNotificationsEnabledKey, "Armor Notifications")
+            addSlider(NotificationsSettings.armorStage1PercentKey, "Armor Stage 1 (Final)", 1f, 100f)
+            addToggle(NotificationsSettings.armorStage1SoundEnabledKey, "Armor Stage 1 Sound")
+            addInput(NotificationsSettings.armorStage1SoundFileKey, "Armor Stage 1 Sound File", "name / name.mp3")
+            addSlider(NotificationsSettings.armorStage1SoundVolumeKey, "Armor Stage 1 Volume", 0f, 100f)
+            if (mode == "2") {
+                addSlider(NotificationsSettings.armorStage2PercentKey, "Armor Stage 2 (Early)", 1f, 100f)
+                addToggle(NotificationsSettings.armorStage2SoundEnabledKey, "Armor Stage 2 Sound")
+                addInput(NotificationsSettings.armorStage2SoundFileKey, "Armor Stage 2 Sound File", "name / name.mp3")
+                addSlider(NotificationsSettings.armorStage2SoundVolumeKey, "Armor Stage 2 Volume", 0f, 100f)
+            }
+
             addSection("Hit / Crit Sounds")
             addChoice(NotificationsSettings.hitSoundModeKey, "Hit Sound", "classic" to "Classic", "custom" to "Custom")
             if (hitMode == "custom") {
@@ -1345,9 +1360,9 @@ class ExperimentalVisualsMenuScreen : Screen(Component.empty()) {
     private fun searchInputRect(layout: ScreenLayout): IntRect {
         return IntRect(
             layout.search.x + 12,
-            layout.search.y + 4,
+            layout.search.y + 6,
             layout.search.width - 24,
-            layout.search.height - 8,
+            layout.search.height - 10,
         )
     }
 
@@ -1731,6 +1746,16 @@ class ExperimentalVisualsMenuScreen : Screen(Component.empty()) {
         val stage2 = ModuleStateStore.getNumberSetting(NotificationsSettings.stage2LeadKey, 5.0f).coerceIn(0.1f, 30.0f)
         ModuleStateStore.setNumberSetting(NotificationsSettings.stage1LeadKey, min(stage1, stage2))
         ModuleStateStore.setNumberSetting(NotificationsSettings.stage2LeadKey, max(stage1, stage2))
+
+        val armorStage1 = ModuleStateStore.getNumberSetting(NotificationsSettings.armorStage1PercentKey, 10.0f).coerceIn(1.0f, 100.0f)
+        val armorStage2 = ModuleStateStore.getNumberSetting(NotificationsSettings.armorStage2PercentKey, 25.0f).coerceIn(1.0f, 100.0f)
+        if (choiceValueFor(NotificationsSettings.modeKey, "1") == "2") {
+            ModuleStateStore.setNumberSetting(NotificationsSettings.armorStage1PercentKey, min(armorStage1, armorStage2))
+            ModuleStateStore.setNumberSetting(NotificationsSettings.armorStage2PercentKey, max(armorStage1, armorStage2))
+        } else {
+            ModuleStateStore.setNumberSetting(NotificationsSettings.armorStage1PercentKey, armorStage1)
+            ModuleStateStore.setNumberSetting(NotificationsSettings.armorStage2PercentKey, armorStage2)
+        }
     }
 
     private fun isMissingSoundSetting(key: String): Boolean {
@@ -1738,6 +1763,8 @@ class ExperimentalVisualsMenuScreen : Screen(Component.empty()) {
             key != NotificationsSettings.moduleDisableSoundFileKey &&
             key != NotificationsSettings.stage1SoundFileKey &&
             key != NotificationsSettings.stage2SoundFileKey &&
+            key != NotificationsSettings.armorStage1SoundFileKey &&
+            key != NotificationsSettings.armorStage2SoundFileKey &&
             key != NotificationsSettings.hitSoundFileKey &&
             key != NotificationsSettings.critSoundFileKey
         ) {
@@ -1777,8 +1804,12 @@ class ExperimentalVisualsMenuScreen : Screen(Component.empty()) {
             NotificationsSettings.moduleDisableSoundVolumeKey,
             NotificationsSettings.stage1SoundVolumeKey,
             NotificationsSettings.stage2SoundVolumeKey,
+            NotificationsSettings.armorStage1SoundVolumeKey,
+            NotificationsSettings.armorStage2SoundVolumeKey,
             NotificationsSettings.hitSoundVolumeKey,
-            NotificationsSettings.critSoundVolumeKey -> kotlin.math.round(rawValue)
+            NotificationsSettings.critSoundVolumeKey,
+            NotificationsSettings.armorStage1PercentKey,
+            NotificationsSettings.armorStage2PercentKey -> kotlin.math.round(rawValue)
             NotificationsSettings.stage1LeadKey,
             NotificationsSettings.stage2LeadKey,
             NotificationsSettings.repeatPeriodKey -> kotlin.math.round(rawValue * 10f) / 10f
@@ -1801,8 +1832,12 @@ class ExperimentalVisualsMenuScreen : Screen(Component.empty()) {
             NotificationsSettings.moduleDisableSoundVolumeKey,
             NotificationsSettings.stage1SoundVolumeKey,
             NotificationsSettings.stage2SoundVolumeKey,
+            NotificationsSettings.armorStage1SoundVolumeKey,
+            NotificationsSettings.armorStage2SoundVolumeKey,
             NotificationsSettings.hitSoundVolumeKey,
-            NotificationsSettings.critSoundVolumeKey -> "${value.roundToInt()}%"
+            NotificationsSettings.critSoundVolumeKey,
+            NotificationsSettings.armorStage1PercentKey,
+            NotificationsSettings.armorStage2PercentKey -> "${value.roundToInt()}%"
             NotificationsSettings.stage1LeadKey,
             NotificationsSettings.stage2LeadKey,
             NotificationsSettings.repeatPeriodKey -> "${String.format(java.util.Locale.US, "%.1f", value)}s"

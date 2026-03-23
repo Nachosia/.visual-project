@@ -16,6 +16,15 @@ data class NotificationsConfig(
     val mode: NotificationMode,
     val stage1LeadSeconds: Float,
     val stage2LeadSeconds: Float,
+    val armorNotificationsEnabled: Boolean,
+    val armorStage1Percent: Float,
+    val armorStage2Percent: Float,
+    val armorStage1CustomSoundEnabled: Boolean,
+    val armorStage2CustomSoundEnabled: Boolean,
+    val armorStage1SoundFile: String,
+    val armorStage2SoundFile: String,
+    val armorStage1SoundVolumePercent: Float,
+    val armorStage2SoundVolumePercent: Float,
     val globalCustomSoundVolumePercent: Float,
     val moduleEnableCustomSoundEnabled: Boolean,
     val moduleEnableSoundFile: String,
@@ -37,6 +46,10 @@ data class NotificationsConfig(
     val critSoundFile: String,
     val critSoundVolumePercent: Float,
 ) {
+    fun armorStage1SoundVolumeFactor(): Float = combinedVolume(armorStage1SoundVolumePercent)
+
+    fun armorStage2SoundVolumeFactor(): Float = combinedVolume(armorStage2SoundVolumePercent)
+
     fun moduleEnableSoundVolumeFactor(): Float = combinedVolume(moduleEnableSoundVolumePercent)
 
     fun moduleDisableSoundVolumeFactor(): Float = combinedVolume(moduleDisableSoundVolumePercent)
@@ -61,6 +74,15 @@ object NotificationsSettings {
 
     const val modeKey = "$moduleId:mode"
     const val stage1LeadKey = "$moduleId:stage1_lead_seconds"
+    const val armorNotificationsEnabledKey = "$moduleId:armor_notifications_enabled"
+    const val armorStage1PercentKey = "$moduleId:armor_stage1_percent"
+    const val armorStage2PercentKey = "$moduleId:armor_stage2_percent"
+    const val armorStage1SoundEnabledKey = "$moduleId:armor_stage1_custom_sound_enabled"
+    const val armorStage1SoundFileKey = "$moduleId:armor_stage1_sound_file"
+    const val armorStage1SoundVolumeKey = "$moduleId:armor_stage1_sound_volume"
+    const val armorStage2SoundEnabledKey = "$moduleId:armor_stage2_custom_sound_enabled"
+    const val armorStage2SoundFileKey = "$moduleId:armor_stage2_sound_file"
+    const val armorStage2SoundVolumeKey = "$moduleId:armor_stage2_sound_volume"
     const val globalCustomSoundVolumeKey = "$moduleId:global_custom_sound_volume"
     const val moduleEnableSoundEnabledKey = "$moduleId:module_enable_custom_sound_enabled"
     const val moduleEnableSoundFileKey = "$moduleId:module_enable_sound_file"
@@ -87,6 +109,15 @@ object NotificationsSettings {
         ModuleStateStore.ensureModule(moduleId, defaultEnabled = false)
         ModuleStateStore.ensureTextSetting(modeKey, "1")
         ModuleStateStore.ensureNumberSetting(stage1LeadKey, 1.0f)
+        ModuleStateStore.ensureSetting(armorNotificationsEnabledKey, defaultValue = false)
+        ModuleStateStore.ensureNumberSetting(armorStage1PercentKey, 10.0f)
+        ModuleStateStore.ensureNumberSetting(armorStage2PercentKey, 25.0f)
+        ModuleStateStore.ensureSetting(armorStage1SoundEnabledKey, defaultValue = false)
+        ModuleStateStore.ensureTextSetting(armorStage1SoundFileKey, "")
+        ModuleStateStore.ensureNumberSetting(armorStage1SoundVolumeKey, 100.0f)
+        ModuleStateStore.ensureSetting(armorStage2SoundEnabledKey, defaultValue = false)
+        ModuleStateStore.ensureTextSetting(armorStage2SoundFileKey, "")
+        ModuleStateStore.ensureNumberSetting(armorStage2SoundVolumeKey, 100.0f)
         ModuleStateStore.ensureNumberSetting(globalCustomSoundVolumeKey, 100.0f)
         ModuleStateStore.ensureSetting(moduleEnableSoundEnabledKey, defaultValue = false)
         ModuleStateStore.ensureTextSetting(moduleEnableSoundFileKey, "")
@@ -117,10 +148,23 @@ object NotificationsSettings {
         val rawStage2 = ModuleStateStore.getNumberSetting(stage2LeadKey, 5.0f).coerceIn(0.1f, 30.0f)
         val stage1Lead = minOf(rawStage1, rawStage2)
         val stage2Lead = maxOf(rawStage1, rawStage2)
+        val rawArmorStage1 = ModuleStateStore.getNumberSetting(armorStage1PercentKey, 10.0f).coerceIn(1.0f, 100.0f)
+        val rawArmorStage2 = ModuleStateStore.getNumberSetting(armorStage2PercentKey, 25.0f).coerceIn(1.0f, 100.0f)
+        val armorStage1 = if (mode == NotificationMode.TWO) minOf(rawArmorStage1, rawArmorStage2) else rawArmorStage1
+        val armorStage2 = if (mode == NotificationMode.TWO) maxOf(rawArmorStage1, rawArmorStage2) else rawArmorStage2
         return NotificationsConfig(
             mode = mode,
             stage1LeadSeconds = stage1Lead,
             stage2LeadSeconds = stage2Lead,
+            armorNotificationsEnabled = ModuleStateStore.isSettingEnabled(armorNotificationsEnabledKey),
+            armorStage1Percent = armorStage1,
+            armorStage2Percent = armorStage2,
+            armorStage1CustomSoundEnabled = ModuleStateStore.isSettingEnabled(armorStage1SoundEnabledKey),
+            armorStage2CustomSoundEnabled = ModuleStateStore.isSettingEnabled(armorStage2SoundEnabledKey),
+            armorStage1SoundFile = ModuleStateStore.getTextSetting(armorStage1SoundFileKey, ""),
+            armorStage2SoundFile = ModuleStateStore.getTextSetting(armorStage2SoundFileKey, ""),
+            armorStage1SoundVolumePercent = ModuleStateStore.getNumberSetting(armorStage1SoundVolumeKey, 100.0f).coerceIn(0f, 100f),
+            armorStage2SoundVolumePercent = ModuleStateStore.getNumberSetting(armorStage2SoundVolumeKey, 100.0f).coerceIn(0f, 100f),
             globalCustomSoundVolumePercent = ModuleStateStore.getNumberSetting(globalCustomSoundVolumeKey, 100.0f).coerceIn(0f, 100f),
             moduleEnableCustomSoundEnabled = ModuleStateStore.isSettingEnabled(moduleEnableSoundEnabledKey),
             moduleEnableSoundFile = ModuleStateStore.getTextSetting(moduleEnableSoundFileKey, ""),

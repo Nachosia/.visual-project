@@ -9,6 +9,7 @@ object NotificationsModule {
 
     private val renderer = NotificationRenderer()
     private val potionWatcher = PotionNotificationWatcher()
+    private val armorWatcher = ArmorNotificationWatcher()
 
     fun initialize() {
         NotificationsSettings.initializeDefaults()
@@ -18,6 +19,7 @@ object NotificationsModule {
 
         ClientTickEvents.END_CLIENT_TICK.register(ClientTickEvents.EndTick { client ->
             potionWatcher.tick(client)
+            armorWatcher.tick(client)
         })
 
         HudRenderCallback.EVENT.register(HudRenderCallback { context, _ ->
