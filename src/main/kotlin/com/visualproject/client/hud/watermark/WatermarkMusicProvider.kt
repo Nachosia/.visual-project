@@ -95,23 +95,26 @@ internal class WindowsNativeBridgeGateway : MediaSessionGateway {
     }
 
     private val logger = LoggerFactory.getLogger("visualclient-watermark-media-gateway")
-    private val debugMediaSessions = System.getProperty("visualclient.media.debug", "true").toBoolean()
+    private val debugMediaSessions = System.getProperty("visualclient.media.debug", "false").toBoolean()
     private val cachedHelperPath = AtomicReference<Path?>()
+    private val lastSuccessfulSessions = AtomicReference<List<SessionSnapshot>>(emptyList())
 
     override fun querySessions(): List<SessionSnapshot> {
         if (!isWindows()) return emptyList()
 
         val helperPath = ensureHelperBinary() ?: return emptyList()
-        val command = buildList {
-            add(helperPath.toAbsolutePath().toString())
-            add("query")
-            if (debugMediaSessions) add("--debug")
+        var command = buildQueryCommand(helperPath, withDebug = debugMediaSessions)
+        var execution = executeProcess(command, timeoutMs = 9_000L)
+
+        if (debugMediaSessions && (!execution.success || execution.stdout.isBlank())) {
+            logger.warn("media-gateway: query debug-mode failed, retrying without --debug")
+            command = buildQueryCommand(helperPath, withDebug = false)
+            execution = executeProcess(command, timeoutMs = 9_000L)
         }
-        val execution = executeProcess(command, timeoutMs = 6_500L)
 
         if (!execution.success) {
             logExecutionFailure("query", command, execution)
-            return emptyList()
+            return fallbackToLastSuccessfulSessions("failed query")
         }
 
         if (execution.stdout.isBlank()) {
@@ -120,7 +123,7 @@ internal class WindowsNativeBridgeGateway : MediaSessionGateway {
                 execution.exitCode,
                 shorten(execution.stderr, 600),
             )
-            return emptyList()
+            return fallbackToLastSuccessfulSessions("blank stdout")
         }
 
         if (debugMediaSessions) {
@@ -136,7 +139,9 @@ internal class WindowsNativeBridgeGateway : MediaSessionGateway {
             }
         }
 
-        return parseSessionSnapshots(execution.stdout)
+        val parsedSessions = parseSessionSnapshots(execution.stdout)
+        lastSuccessfulSessions.set(parsedSessions)
+        return parsedSessions
     }
 
     override fun control(sourceQuery: String, action: PlaybackAction): Boolean {
@@ -246,6 +251,100 @@ internal class WindowsNativeBridgeGateway : MediaSessionGateway {
         }
     }
 
+    private fun parseSessionSnapshots(json: String): List<SessionSnapshot> {
+        return try {
+            val root = JsonParser.parseString(json)
+            when {
+                root.isJsonArray -> root.asJsonArray.mapNotNull(::toSessionSnapshot)
+                root.isJsonObject && root.asJsonObject.has("sessions") -> {
+                    root.asJsonObject.getAsJsonArray("sessions").mapNotNull(::toSessionSnapshot)
+                }
+                root.isJsonObject -> listOfNotNull(toSessionSnapshot(root))
+                else -> emptyList()
+            }
+        } catch (throwable: Throwable) {
+            logger.warn(
+                "media-gateway: json-parse-failed length={} raw='{}'",
+                json.length,
+                shorten(json, 700),
+                throwable,
+            )
+            emptyList()
+        }
+    }
+
+    private fun toSessionSnapshot(element: JsonElement): SessionSnapshot? {
+        if (!element.isJsonObject) return null
+        val obj = element.asJsonObject
+
+        return SessionSnapshot(
+            source = obj.get("source")?.asString?.trim().orEmpty(),
+            title = obj.get("title")?.asString?.trim().orEmpty(),
+            artist = obj.get("artist")?.asString?.trim().orEmpty(),
+            album = obj.get("album")?.asString?.trim().orEmpty(),
+            subtitle = obj.get("subtitle")?.asString?.trim().orEmpty(),
+            status = obj.get("status")?.asString?.trim().orEmpty(),
+            positionSeconds = (obj.get("position")?.asFloat ?: 0f).coerceAtLeast(0f),
+            durationSeconds = (obj.get("duration")?.asFloat ?: 0f).coerceAtLeast(0f),
+            artworkPath = obj.get("artworkPath")?.asString?.trim().orEmpty().ifBlank { null },
+            isCurrent = obj.get("isCurrent")?.asBoolean ?: false,
+            playbackError = obj.get("playbackError")?.asString?.trim().orEmpty().ifBlank { null },
+            timelineError = obj.get("timelineError")?.asString?.trim().orEmpty().ifBlank { null },
+            mediaError = obj.get("mediaError")?.asString?.trim().orEmpty().ifBlank { null },
+            error = obj.get("error")?.asString?.trim().orEmpty().ifBlank { null },
+        )
+    }
+
+    private fun resolveNativeBridgeDir(): Path {
+        val localAppData = System.getenv("LOCALAPPDATA")
+        return if (!localAppData.isNullOrBlank()) {
+            Path.of(localAppData, "VisualClient", "native")
+        } else {
+            Path.of(System.getProperty("java.io.tmpdir"), "visualclient", "native")
+        }
+    }
+
+    private fun formatCommand(command: List<String>): String {
+        return command.joinToString(" ") { arg ->
+            if (arg.contains(' ')) "\"$arg\"" else arg
+        }
+    }
+
+    private fun parseControlOk(stdout: String): Boolean {
+        if (stdout.isBlank()) {
+            logger.warn("media-gateway: control parse failed, stdout is blank")
+            return false
+        }
+
+        return try {
+            val root = JsonParser.parseString(stdout)
+            if (root.isJsonObject && root.asJsonObject.has("ok")) {
+                root.asJsonObject.get("ok").asBoolean
+            } else {
+                logger.warn("media-gateway: control parse failed, missing 'ok' in stdout='{}'", shorten(stdout, 240))
+                false
+            }
+        } catch (throwable: Throwable) {
+            logger.warn("media-gateway: control parse failed, stdout='{}'", shorten(stdout, 240), throwable)
+            false
+        }
+    }
+
+    private fun sha1Hex(bytes: ByteArray): String {
+        return MessageDigest.getInstance("SHA-1")
+            .digest(bytes)
+            .joinToString("") { b -> "%02x".format(b) }
+    }
+
+    private fun isWindows(): Boolean {
+        return System.getProperty("os.name", "").lowercase(Locale.ROOT).contains("win")
+    }
+
+    private fun shorten(value: String, max: Int): String {
+        if (value.length <= max) return value
+        return value.substring(0, max.coerceAtLeast(4) - 3) + "..."
+    }
+
     private fun executeProcess(command: List<String>, timeoutMs: Long): ProcessExecutionResult {
         val startedAt = System.currentTimeMillis()
         if (debugMediaSessions) {
@@ -316,59 +415,6 @@ internal class WindowsNativeBridgeGateway : MediaSessionGateway {
         }
     }
 
-    private fun parseSessionSnapshots(json: String): List<SessionSnapshot> {
-        return try {
-            val root = JsonParser.parseString(json)
-            when {
-                root.isJsonArray -> root.asJsonArray.mapNotNull(::toSessionSnapshot)
-                root.isJsonObject && root.asJsonObject.has("sessions") -> {
-                    root.asJsonObject.getAsJsonArray("sessions").mapNotNull(::toSessionSnapshot)
-                }
-                root.isJsonObject -> listOfNotNull(toSessionSnapshot(root))
-                else -> emptyList()
-            }
-        } catch (throwable: Throwable) {
-            logger.warn(
-                "media-gateway: json-parse-failed length={} raw='{}'",
-                json.length,
-                shorten(json, 700),
-                throwable,
-            )
-            emptyList()
-        }
-    }
-
-    private fun toSessionSnapshot(element: JsonElement): SessionSnapshot? {
-        if (!element.isJsonObject) return null
-        val obj = element.asJsonObject
-
-        return SessionSnapshot(
-            source = obj.get("source")?.asString?.trim().orEmpty(),
-            title = obj.get("title")?.asString?.trim().orEmpty(),
-            artist = obj.get("artist")?.asString?.trim().orEmpty(),
-            album = obj.get("album")?.asString?.trim().orEmpty(),
-            subtitle = obj.get("subtitle")?.asString?.trim().orEmpty(),
-            status = obj.get("status")?.asString?.trim().orEmpty(),
-            positionSeconds = (obj.get("position")?.asFloat ?: 0f).coerceAtLeast(0f),
-            durationSeconds = (obj.get("duration")?.asFloat ?: 0f).coerceAtLeast(0f),
-            artworkPath = obj.get("artworkPath")?.asString?.trim().orEmpty().ifBlank { null },
-            isCurrent = obj.get("isCurrent")?.asBoolean ?: false,
-            playbackError = obj.get("playbackError")?.asString?.trim().orEmpty().ifBlank { null },
-            timelineError = obj.get("timelineError")?.asString?.trim().orEmpty().ifBlank { null },
-            mediaError = obj.get("mediaError")?.asString?.trim().orEmpty().ifBlank { null },
-            error = obj.get("error")?.asString?.trim().orEmpty().ifBlank { null },
-        )
-    }
-
-    private fun resolveNativeBridgeDir(): Path {
-        val localAppData = System.getenv("LOCALAPPDATA")
-        return if (!localAppData.isNullOrBlank()) {
-            Path.of(localAppData, "VisualClient", "native")
-        } else {
-            Path.of(System.getProperty("java.io.tmpdir"), "visualclient", "native")
-        }
-    }
-
     private fun logExecutionFailure(
         operation: String,
         command: List<String>,
@@ -397,45 +443,27 @@ internal class WindowsNativeBridgeGateway : MediaSessionGateway {
         }
     }
 
-    private fun formatCommand(command: List<String>): String {
-        return command.joinToString(" ") { arg ->
-            if (arg.contains(' ')) "\"$arg\"" else arg
+    private fun buildQueryCommand(helperPath: Path, withDebug: Boolean): List<String> {
+        return buildList {
+            add(helperPath.toAbsolutePath().toString())
+            add("query")
+            if (withDebug) add("--debug")
         }
     }
 
-    private fun parseControlOk(stdout: String): Boolean {
-        if (stdout.isBlank()) {
-            logger.warn("media-gateway: control parse failed, stdout is blank")
-            return false
+    private fun fallbackToLastSuccessfulSessions(reason: String): List<SessionSnapshot> {
+        val cached = lastSuccessfulSessions.get()
+        if (cached.isEmpty()) {
+            logger.warn("media-gateway: no fallback sessions available after {}", reason)
+            return emptyList()
         }
 
-        return try {
-            val root = JsonParser.parseString(stdout)
-            if (root.isJsonObject && root.asJsonObject.has("ok")) {
-                root.asJsonObject.get("ok").asBoolean
-            } else {
-                logger.warn("media-gateway: control parse failed, missing 'ok' in stdout='{}'", shorten(stdout, 240))
-                false
-            }
-        } catch (throwable: Throwable) {
-            logger.warn("media-gateway: control parse failed, stdout='{}'", shorten(stdout, 240), throwable)
-            false
-        }
-    }
-
-    private fun sha1Hex(bytes: ByteArray): String {
-        return MessageDigest.getInstance("SHA-1")
-            .digest(bytes)
-            .joinToString("") { b -> "%02x".format(b) }
-    }
-
-    private fun isWindows(): Boolean {
-        return System.getProperty("os.name", "").lowercase(Locale.ROOT).contains("win")
-    }
-
-    private fun shorten(value: String, max: Int): String {
-        if (value.length <= max) return value
-        return value.substring(0, max.coerceAtLeast(4) - 3) + "..."
+        logger.warn(
+            "media-gateway: using {} cached session(s) after {}",
+            cached.size,
+            reason,
+        )
+        return cached
     }
 
     companion object {
@@ -451,11 +479,12 @@ internal class SpotifySoundCloudMusicProvider(
     private data class MatchEvaluation(
         val session: SessionSnapshot,
         val accepted: Boolean,
+        val priority: Int,
         val reason: String,
     )
 
     private val logger = LoggerFactory.getLogger("visualclient-watermark-media")
-    private val debugMediaSessions = System.getProperty("visualclient.media.debug", "true").toBoolean()
+    private val debugMediaSessions = System.getProperty("visualclient.media.debug", "false").toBoolean()
 
     private val poller = Executors.newSingleThreadScheduledExecutor { runnable ->
         Thread(runnable, "visualclient-media-poller").apply { isDaemon = true }
@@ -628,8 +657,9 @@ internal class SpotifySoundCloudMusicProvider(
         val now = System.currentTimeMillis()
         val sessions = gateway.querySessions()
         val evaluations = sessions.map(::evaluateSession)
-        val best = evaluations.firstOrNull { it.accepted && it.session.isCurrent }
-            ?: evaluations.firstOrNull { it.accepted }
+        val best = evaluations
+            .filter { it.accepted }
+            .maxByOrNull { it.priority }
 
         if (best == null) {
             cachedTrackRef.set(null)
@@ -637,11 +667,7 @@ internal class SpotifySoundCloudMusicProvider(
             lastKnownTrackIdentity = null
         } else {
             val liveArtworkPath = resolveLiveArtworkPath(best.session)
-            val normalizedSource = when {
-                isSpotifySession(best.session) -> "spotify"
-                isSoundCloudSession(best.session) -> "soundcloud"
-                else -> "unknown"
-            }
+            val normalizedSource = normalizedSource(best.session)
             val playbackState = if (isPlaying(best.session.status)) {
                 WatermarkPlaybackState.PLAYING
             } else {
@@ -745,22 +771,59 @@ internal class SpotifySoundCloudMusicProvider(
         val titlePresent = session.title.isNotBlank()
         val spotify = isSpotifySession(session)
         val soundCloud = isSoundCloudSession(session)
+        val preferred = spotify || soundCloud
+        val accepted = active && titlePresent
+        val priority = if (accepted) computePriority(session, preferred) else Int.MIN_VALUE
 
-        val accepted = active && titlePresent && (spotify || soundCloud)
         val reason = when {
-            accepted && spotify -> "accepted: spotify session with valid metadata"
-            accepted && soundCloud -> "accepted: soundcloud session with valid metadata"
+            accepted && preferred && session.isCurrent -> "accepted: current spotify/soundcloud session"
+            accepted && preferred -> "accepted: spotify/soundcloud session with valid metadata"
+            accepted && session.isCurrent -> "accepted: current media session fallback"
+            accepted -> "accepted: media session fallback"
             !active -> "rejected: status is not active (${session.status})"
             !titlePresent -> "rejected: title is empty"
-            !spotify && !soundCloud -> "rejected: source is not spotify/soundcloud"
             else -> "rejected: unknown"
         }
 
         return MatchEvaluation(
             session = session,
             accepted = accepted,
+            priority = priority,
             reason = reason,
         )
+    }
+
+    private fun computePriority(session: SessionSnapshot, preferred: Boolean): Int {
+        var score = 0
+
+        if (session.isCurrent) score += 300
+        if (preferred) score += 220
+        if (isPlaying(session.status)) score += 120
+        if (session.artist.isNotBlank()) score += 20
+        if (!session.artworkPath.isNullOrBlank()) score += 10
+
+        if (looksLikePlaceholderTitle(session.title)) {
+            score -= 140
+        }
+
+        if (session.durationSeconds <= 0f && session.positionSeconds <= 0f && isPaused(session.status)) {
+            score -= 30
+        }
+
+        return score
+    }
+
+    private fun looksLikePlaceholderTitle(title: String): Boolean {
+        val normalized = title.trim().lowercase(Locale.ROOT)
+        return normalized in PLACEHOLDER_TITLES
+    }
+
+    private fun normalizedSource(session: SessionSnapshot): String {
+        return when {
+            isSpotifySession(session) -> "spotify"
+            isSoundCloudSession(session) -> "soundcloud"
+            else -> session.source.ifBlank { "media" }
+        }
     }
 
     private fun isPlaying(status: String): Boolean {
@@ -819,12 +882,14 @@ internal class SpotifySoundCloudMusicProvider(
 
         if (best != null) {
             logger.info(
-                "media-debug: SELECTED source='{}' title='{}' (first accepted candidate)",
+                "media-debug: SELECTED source='{}' title='{}' priority={} reason='{}'",
                 shorten(best.session.source, 72),
                 shorten(best.session.title, 60),
+                best.priority,
+                best.reason,
             )
         } else {
-            logger.info("media-debug: SELECTED none (no accepted playing session with title)")
+            logger.info("media-debug: SELECTED none (no accepted media session with title)")
         }
     }
 
@@ -859,6 +924,12 @@ internal class SpotifySoundCloudMusicProvider(
 
     companion object {
         private val BROWSER_MARKERS = listOf("chrome", "msedge", "edge", "firefox", "opera", "brave", "vivaldi", "arc")
+        private val PLACEHOLDER_TITLES = setOf(
+            "up next",
+            "advertisement",
+            "ad",
+            "реклама",
+        )
         private const val STABLE_PLAYING_MIN_MS = 6_000L
         private const val STABLE_PLAYING_MAX_MS = 8_000L
         private const val FAST_POLL_MS = 900L

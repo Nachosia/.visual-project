@@ -30,40 +30,54 @@ import kotlin.math.roundToInt
 internal class TargetHudRenderer {
 
     private object Style {
-        const val textPrimary = 0xFFF2F5FF.toInt()
-        const val textSecondary = 0xFF9FAACC.toInt()
+        val textPrimary: Int
+            get() = VisualThemeSettings.textPrimary()
+
+        val textSecondary: Int
+            get() = VisualThemeSettings.textSecondary()
+
+        val nameText: Int
+            get() = if (VisualThemeSettings.isLightPreset()) 0xFF111111.toInt() else textSecondary
 
         fun shell(): SdfPanelStyle = SdfPanelStyle(
-            baseColor = 0xF50D1220.toInt(),
-            borderColor = 0xA83C4A67.toInt(),
+            baseColor = VisualThemeSettings.hudShellFill(),
+            borderColor = VisualThemeSettings.hudShellBorder(),
             borderWidthPx = 1.3f,
             radiusPx = TargetHudLayout.radius.toFloat(),
             innerGlow = SdfGlowStyle(0xFFFFFFFF.toInt(), radiusPx = 14f, strength = 0.04f, opacity = 0.03f),
-            outerGlow = SdfGlowStyle(VisualThemeSettings.accentStrong(), radiusPx = 22f, strength = 0.14f, opacity = 0.08f),
-            shade = SdfShadeStyle(0x10FFFFFF, 0x16000000),
-            neonBorder = SdfNeonBorderStyle(VisualThemeSettings.withAlpha(VisualThemeSettings.neonBorder(), 0xA2), widthPx = 1.0f, softnessPx = 5f, strength = 0.64f),
+            outerGlow = SdfGlowStyle(VisualThemeSettings.themedAccentGlowBase(), radiusPx = 22f, strength = if (VisualThemeSettings.isLightPreset()) 0.10f else 0.14f, opacity = if (VisualThemeSettings.isLightPreset()) 0.06f else 0.08f),
+            shade = SdfShadeStyle(VisualThemeSettings.hudShellShadeTop(), VisualThemeSettings.hudShellShadeBottom()),
+            neonBorder = SdfNeonBorderStyle(
+                VisualThemeSettings.withAlpha(VisualThemeSettings.neonBorder(), if (VisualThemeSettings.isLightPreset()) 0x72 else 0xA2),
+                widthPx = 1.0f,
+                softnessPx = 5f,
+                strength = if (VisualThemeSettings.isLightPreset()) 0.40f else 0.64f,
+            ),
         )
 
         fun preview(): SdfPanelStyle = SdfPanelStyle(
-            baseColor = 0xEE10182A.toInt(),
-            borderColor = 0x88405273.toInt(),
+            baseColor = VisualThemeSettings.hudInnerFill(),
+            borderColor = VisualThemeSettings.hudInnerBorder(),
             borderWidthPx = 1.1f,
             radiusPx = TargetHudLayout.previewRadius.toFloat(),
             innerGlow = SdfGlowStyle(VisualThemeSettings.accentStrong(), radiusPx = 12f, strength = 0.06f, opacity = 0.05f),
-            outerGlow = SdfGlowStyle(0xFF000000.toInt(), radiusPx = 14f, strength = 0.12f, opacity = 0.12f),
-            shade = SdfShadeStyle(0x0EFFFFFF, 0x16000000),
-            neonBorder = SdfNeonBorderStyle(VisualThemeSettings.withAlpha(VisualThemeSettings.neonBorder(), 0x56), widthPx = 0.9f, softnessPx = 4f, strength = 0.34f),
+            outerGlow = SdfGlowStyle(if (VisualThemeSettings.isLightPreset()) 0xFFE3EAF4.toInt() else 0xFF000000.toInt(), radiusPx = 14f, strength = if (VisualThemeSettings.isLightPreset()) 0.08f else 0.12f, opacity = if (VisualThemeSettings.isLightPreset()) 0.08f else 0.12f),
+            shade = SdfShadeStyle(
+                if (VisualThemeSettings.isLightPreset()) 0x08FFFFFF else 0x0EFFFFFF,
+                if (VisualThemeSettings.isLightPreset()) 0x0CD1DCEC else 0x16000000,
+            ),
+            neonBorder = SdfNeonBorderStyle(VisualThemeSettings.withAlpha(VisualThemeSettings.neonBorder(), if (VisualThemeSettings.isLightPreset()) 0x38 else 0x56), widthPx = 0.9f, softnessPx = 4f, strength = if (VisualThemeSettings.isLightPreset()) 0.20f else 0.34f),
         )
 
         fun barTrack(): SdfPanelStyle = SdfPanelStyle(
-            baseColor = 0xD1182030.toInt(),
-            borderColor = 0x95415070.toInt(),
+            baseColor = VisualThemeSettings.hudTrackFill(),
+            borderColor = VisualThemeSettings.hudTrackBorder(),
             borderWidthPx = 1.0f,
             radiusPx = 5f,
             innerGlow = SdfGlowStyle(0xFFFFFFFF.toInt(), radiusPx = 5f, strength = 0.02f, opacity = 0.02f),
             outerGlow = SdfGlowStyle(0x00000000, radiusPx = 0f, strength = 0f, opacity = 0f),
-            shade = SdfShadeStyle(0x08FFFFFF, 0x10000000),
-            neonBorder = SdfNeonBorderStyle(VisualThemeSettings.withAlpha(VisualThemeSettings.neonBorder(), 0x34), widthPx = 0.75f, softnessPx = 3.5f, strength = 0.20f),
+            shade = SdfShadeStyle(0x08FFFFFF, if (VisualThemeSettings.isLightPreset()) 0x08D0DBEA else 0x10000000),
+            neonBorder = SdfNeonBorderStyle(VisualThemeSettings.withAlpha(VisualThemeSettings.neonBorder(), if (VisualThemeSettings.isLightPreset()) 0x20 else 0x34), widthPx = 0.75f, softnessPx = 3.5f, strength = if (VisualThemeSettings.isLightPreset()) 0.12f else 0.20f),
         )
 
         fun barFill(ratio: Float): SdfPanelStyle {
@@ -82,8 +96,16 @@ internal class TargetHudRenderer {
         }
 
         fun slot(filled: Boolean): SdfPanelStyle = SdfPanelStyle(
-            baseColor = if (filled) 0xC6141C2E.toInt() else 0x9E111827.toInt(),
-            borderColor = if (filled) 0x7A50638D else 0x5632405D,
+            baseColor = if (filled) {
+                if (VisualThemeSettings.isLightPreset()) blendColor(0xFFF0F5FC.toInt(), VisualThemeSettings.sliderFill(), 0.42f) else 0xC6141C2E.toInt()
+            } else {
+                if (VisualThemeSettings.isLightPreset()) 0xD7E4EEF8.toInt() else 0x9E111827.toInt()
+            },
+            borderColor = if (filled) {
+                if (VisualThemeSettings.isLightPreset()) blendColor(0xFFCAD7E8.toInt(), VisualThemeSettings.neonBorder(), 0.18f) else 0x7A50638D
+            } else {
+                if (VisualThemeSettings.isLightPreset()) 0x8DBFD1E4.toInt() else 0x5632405D
+            },
             borderWidthPx = 1.0f,
             radiusPx = 7f,
             innerGlow = SdfGlowStyle(
@@ -93,71 +115,87 @@ internal class TargetHudRenderer {
                 opacity = if (filled) 0.06f else 0.02f,
             ),
             outerGlow = SdfGlowStyle(
-                color = if (filled) VisualThemeSettings.accentStrong() else 0xFF000000.toInt(),
+                color = if (filled) VisualThemeSettings.themedAccentGlowBase() else if (VisualThemeSettings.isLightPreset()) 0xFFE5ECF6.toInt() else 0xFF000000.toInt(),
                 radiusPx = 10f,
-                strength = if (filled) 0.10f else 0.08f,
-                opacity = if (filled) 0.06f else 0.08f,
+                strength = if (filled) 0.10f else if (VisualThemeSettings.isLightPreset()) 0.05f else 0.08f,
+                opacity = if (filled) 0.06f else if (VisualThemeSettings.isLightPreset()) 0.05f else 0.08f,
             ),
-            shade = SdfShadeStyle(0x08FFFFFF, 0x10000000),
+            shade = SdfShadeStyle(0x08FFFFFF, if (VisualThemeSettings.isLightPreset()) 0x08D0DBEA else 0x10000000),
             neonBorder = SdfNeonBorderStyle(
-                color = if (filled) VisualThemeSettings.withAlpha(VisualThemeSettings.neonBorder(), 0x70) else VisualThemeSettings.withAlpha(VisualThemeSettings.neonBorder(), 0x24),
+                color = if (filled) {
+                    VisualThemeSettings.withAlpha(VisualThemeSettings.neonBorder(), if (VisualThemeSettings.isLightPreset()) 0x44 else 0x70)
+                } else {
+                    VisualThemeSettings.withAlpha(VisualThemeSettings.neonBorder(), if (VisualThemeSettings.isLightPreset()) 0x16 else 0x24)
+                },
                 widthPx = if (filled) 0.9f else 0.75f,
                 softnessPx = 4f,
-                strength = if (filled) 0.38f else 0.14f,
+                strength = if (filled) {
+                    if (VisualThemeSettings.isLightPreset()) 0.22f else 0.38f
+                } else {
+                    if (VisualThemeSettings.isLightPreset()) 0.08f else 0.14f
+                },
             ),
         )
 
         fun sliderDock(): SdfPanelStyle = SdfPanelStyle(
-            baseColor = 0xE20C1320.toInt(),
-            borderColor = 0x94405072.toInt(),
+            baseColor = VisualThemeSettings.hudInnerFill(),
+            borderColor = VisualThemeSettings.hudInnerBorder(),
             borderWidthPx = 1.1f,
             radiusPx = 12f,
             innerGlow = SdfGlowStyle(VisualThemeSettings.accentStrong(), radiusPx = 12f, strength = 0.05f, opacity = 0.04f),
-            outerGlow = SdfGlowStyle(0xFF000000.toInt(), radiusPx = 14f, strength = 0.10f, opacity = 0.12f),
-            shade = SdfShadeStyle(0x0CFFFFFF, 0x14000000),
-            neonBorder = SdfNeonBorderStyle(VisualThemeSettings.withAlpha(VisualThemeSettings.neonBorder(), 0x5A), widthPx = 0.9f, softnessPx = 4f, strength = 0.30f),
+            outerGlow = SdfGlowStyle(if (VisualThemeSettings.isLightPreset()) 0xFFE4ECF6.toInt() else 0xFF000000.toInt(), radiusPx = 14f, strength = if (VisualThemeSettings.isLightPreset()) 0.06f else 0.10f, opacity = if (VisualThemeSettings.isLightPreset()) 0.07f else 0.12f),
+            shade = SdfShadeStyle(0x0CFFFFFF, if (VisualThemeSettings.isLightPreset()) 0x0CD0DBEA else 0x14000000),
+            neonBorder = SdfNeonBorderStyle(VisualThemeSettings.withAlpha(VisualThemeSettings.neonBorder(), if (VisualThemeSettings.isLightPreset()) 0x30 else 0x5A), widthPx = 0.9f, softnessPx = 4f, strength = if (VisualThemeSettings.isLightPreset()) 0.18f else 0.30f),
         )
 
         fun sliderTrack(active: Boolean): SdfPanelStyle = SdfPanelStyle(
-            baseColor = if (active) 0xCF172133.toInt() else 0xB71A2335.toInt(),
-            borderColor = if (active) blendColor(0xA752638B.toInt(), VisualThemeSettings.accentStrong(), 0.35f) else 0x863B4B67.toInt(),
+            baseColor = if (active) {
+                if (VisualThemeSettings.isLightPreset()) 0xD9E5EEF8.toInt() else 0xCF172133.toInt()
+            } else {
+                if (VisualThemeSettings.isLightPreset()) VisualThemeSettings.hudTrackFill() else 0xB71A2335.toInt()
+            },
+            borderColor = if (active) {
+                if (VisualThemeSettings.isLightPreset()) blendColor(0xFFC4D2E5.toInt(), VisualThemeSettings.accentStrong(), 0.18f) else blendColor(0xA752638B.toInt(), VisualThemeSettings.accentStrong(), 0.35f)
+            } else {
+                if (VisualThemeSettings.isLightPreset()) VisualThemeSettings.hudTrackBorder() else 0x863B4B67.toInt()
+            },
             borderWidthPx = 1.0f,
             radiusPx = 3f,
             innerGlow = SdfGlowStyle(0xFFFFFFFF.toInt(), radiusPx = 5f, strength = 0.02f, opacity = 0.02f),
-            outerGlow = SdfGlowStyle(VisualThemeSettings.accentStrong(), radiusPx = 8f, strength = if (active) 0.12f else 0.08f, opacity = if (active) 0.08f else 0.04f),
-            shade = SdfShadeStyle(0x08FFFFFF, 0x0E000000),
+            outerGlow = SdfGlowStyle(VisualThemeSettings.themedAccentGlowBase(), radiusPx = 8f, strength = if (active) if (VisualThemeSettings.isLightPreset()) 0.08f else 0.12f else if (VisualThemeSettings.isLightPreset()) 0.05f else 0.08f, opacity = if (active) if (VisualThemeSettings.isLightPreset()) 0.05f else 0.08f else if (VisualThemeSettings.isLightPreset()) 0.03f else 0.04f),
+            shade = SdfShadeStyle(0x08FFFFFF, if (VisualThemeSettings.isLightPreset()) 0x08D0DBEA else 0x0E000000),
             neonBorder = SdfNeonBorderStyle(
-                if (active) VisualThemeSettings.withAlpha(VisualThemeSettings.neonBorder(), 0x74) else VisualThemeSettings.withAlpha(VisualThemeSettings.neonBorder(), 0x34),
+                if (active) VisualThemeSettings.withAlpha(VisualThemeSettings.neonBorder(), if (VisualThemeSettings.isLightPreset()) 0x40 else 0x74) else VisualThemeSettings.withAlpha(VisualThemeSettings.neonBorder(), if (VisualThemeSettings.isLightPreset()) 0x20 else 0x34),
                 widthPx = 0.8f,
                 softnessPx = 3.5f,
-                strength = if (active) 0.42f else 0.22f,
+                strength = if (active) if (VisualThemeSettings.isLightPreset()) 0.24f else 0.42f else if (VisualThemeSettings.isLightPreset()) 0.12f else 0.22f,
             ),
         )
 
         fun sliderFill(): SdfPanelStyle = SdfPanelStyle(
-            baseColor = VisualThemeSettings.sliderFill(),
-            borderColor = blendColor(VisualThemeSettings.sliderFill(), 0xFFFFFFFF.toInt(), 0.18f),
+            baseColor = if (VisualThemeSettings.isLightPreset()) blendColor(0xFFF5F9FE.toInt(), VisualThemeSettings.sliderFill(), 0.72f) else VisualThemeSettings.sliderFill(),
+            borderColor = if (VisualThemeSettings.isLightPreset()) blendColor(0xFFD3E0EF.toInt(), VisualThemeSettings.sliderFill(), 0.30f) else blendColor(VisualThemeSettings.sliderFill(), 0xFFFFFFFF.toInt(), 0.18f),
             borderWidthPx = 0.8f,
             radiusPx = 2.5f,
             innerGlow = SdfGlowStyle(0xFFFFFFFF.toInt(), radiusPx = 5f, strength = 0.06f, opacity = 0.05f),
-            outerGlow = SdfGlowStyle(VisualThemeSettings.sliderFill(), radiusPx = 8f, strength = 0.16f, opacity = 0.10f),
-            shade = SdfShadeStyle(0x10FFFFFF, 0x0A000000),
-            neonBorder = SdfNeonBorderStyle(VisualThemeSettings.withAlpha(VisualThemeSettings.neonBorder(), 0xD5), widthPx = 0.9f, softnessPx = 4f, strength = 0.55f),
+            outerGlow = SdfGlowStyle(VisualThemeSettings.sliderFill(), radiusPx = 8f, strength = if (VisualThemeSettings.isLightPreset()) 0.10f else 0.16f, opacity = if (VisualThemeSettings.isLightPreset()) 0.07f else 0.10f),
+            shade = SdfShadeStyle(0x10FFFFFF, if (VisualThemeSettings.isLightPreset()) 0x08D0DBEA else 0x0A000000),
+            neonBorder = SdfNeonBorderStyle(VisualThemeSettings.withAlpha(VisualThemeSettings.neonBorder(), if (VisualThemeSettings.isLightPreset()) 0x78 else 0xD5), widthPx = 0.9f, softnessPx = 4f, strength = if (VisualThemeSettings.isLightPreset()) 0.28f else 0.55f),
         )
 
         fun sliderKnob(active: Boolean): SdfPanelStyle = SdfPanelStyle(
-            baseColor = VisualThemeSettings.sliderKnob(),
-            borderColor = if (active) blendColor(VisualThemeSettings.sliderKnob(), VisualThemeSettings.accentStrong(), 0.30f) else 0xFFB3BEDD.toInt(),
+            baseColor = if (VisualThemeSettings.isLightPreset()) blendColor(0xFFFFFFFF.toInt(), VisualThemeSettings.sliderKnob(), 0.58f) else VisualThemeSettings.sliderKnob(),
+            borderColor = if (active) blendColor(VisualThemeSettings.sliderKnob(), VisualThemeSettings.accentStrong(), if (VisualThemeSettings.isLightPreset()) 0.18f else 0.30f) else if (VisualThemeSettings.isLightPreset()) 0xFFC4D0E4.toInt() else 0xFFB3BEDD.toInt(),
             borderWidthPx = 1.0f,
             radiusPx = 5f,
             innerGlow = SdfGlowStyle(0xFFFFFFFF.toInt(), radiusPx = 6f, strength = 0.06f, opacity = 0.06f),
-            outerGlow = SdfGlowStyle(if (active) VisualThemeSettings.accentStrong() else 0xFFAAB6DB.toInt(), radiusPx = 8f, strength = 0.16f, opacity = if (active) 0.12f else 0.07f),
-            shade = SdfShadeStyle(0x0EFFFFFF, 0x08000000),
+            outerGlow = SdfGlowStyle(if (active) VisualThemeSettings.themedAccentGlowBase() else if (VisualThemeSettings.isLightPreset()) 0xFFE4ECF6.toInt() else 0xFFAAB6DB.toInt(), radiusPx = 8f, strength = if (VisualThemeSettings.isLightPreset()) 0.10f else 0.16f, opacity = if (active) if (VisualThemeSettings.isLightPreset()) 0.08f else 0.12f else if (VisualThemeSettings.isLightPreset()) 0.05f else 0.07f),
+            shade = SdfShadeStyle(0x0EFFFFFF, if (VisualThemeSettings.isLightPreset()) 0x06CDD8E8 else 0x08000000),
             neonBorder = SdfNeonBorderStyle(
-                if (active) VisualThemeSettings.withAlpha(VisualThemeSettings.neonBorder(), 0xCD) else VisualThemeSettings.withAlpha(VisualThemeSettings.neonBorder(), 0x6F),
+                if (active) VisualThemeSettings.withAlpha(VisualThemeSettings.neonBorder(), if (VisualThemeSettings.isLightPreset()) 0x74 else 0xCD) else VisualThemeSettings.withAlpha(VisualThemeSettings.neonBorder(), if (VisualThemeSettings.isLightPreset()) 0x40 else 0x6F),
                 widthPx = 0.9f,
                 softnessPx = 4f,
-                strength = if (active) 0.58f else 0.32f,
+                strength = if (active) if (VisualThemeSettings.isLightPreset()) 0.30f else 0.58f else if (VisualThemeSettings.isLightPreset()) 0.18f else 0.32f,
             ),
         )
     }
@@ -532,7 +570,7 @@ internal class TargetHudRenderer {
             vText(displayName),
             nameX,
             nameY,
-            Style.textSecondary,
+            Style.nameText,
             false,
         )
     }

@@ -72,7 +72,7 @@ internal class ArmorHudRenderer {
 
         val accentSync = ModuleStateStore.isSettingEnabled("${moduleId}:accent_sync")
         val slotBackgroundEnabled = ModuleStateStore.isSettingEnabled("${moduleId}:slot_background")
-        val glowColor = if (accentSync) VisualThemeSettings.accentStrong() else 0xFF8A71FF.toInt()
+        val glowColor = if (accentSync) VisualThemeSettings.themedAccentGlowBase() else VisualThemeSettings.themedFallbackGlow(0xFF8A71FF.toInt())
         val neonColor = if (accentSync) VisualThemeSettings.neonBorder() else 0xFF8A71FF.toInt()
 
         context.pose().pushMatrix()
@@ -198,7 +198,7 @@ internal class ArmorHudRenderer {
                 vText(row.label),
                 x + ((Layout.slotSize - labelWidth) / 2),
                 y + ((Layout.slotSize - font.lineHeight) / 2),
-                0xFFE8B6C4.toInt(),
+                if (VisualThemeSettings.isLightPreset()) VisualThemeSettings.textSecondary() else 0xFFE8B6C4.toInt(),
                 false,
             )
         } else {
@@ -310,31 +310,45 @@ internal class ArmorHudRenderer {
 
     private fun shellStyle(glowColor: Int, neonColor: Int): SdfPanelStyle {
         return SdfPanelStyle(
-            baseColor = 0xF30A0B10.toInt(),
-            borderColor = 0x98343C52.toInt(),
+            baseColor = VisualThemeSettings.hudShellFill(),
+            borderColor = VisualThemeSettings.hudShellBorder(),
             borderWidthPx = 1.1f,
             radiusPx = Layout.shellRadius,
             innerGlow = SdfGlowStyle(0xFFFFFFFF.toInt(), radiusPx = 12f, strength = 0.05f, opacity = 0.03f),
-            outerGlow = SdfGlowStyle(glowColor, radiusPx = 20f, strength = 0.18f, opacity = 0.08f),
-            shade = SdfShadeStyle(0x0AFFFFFF, 0x16000000),
+            outerGlow = SdfGlowStyle(glowColor, radiusPx = 20f, strength = if (VisualThemeSettings.isLightPreset()) 0.14f else 0.18f, opacity = if (VisualThemeSettings.isLightPreset()) 0.07f else 0.08f),
+            shade = SdfShadeStyle(
+                if (VisualThemeSettings.isLightPreset()) 0x08FFFFFF else 0x0AFFFFFF,
+                if (VisualThemeSettings.isLightPreset()) 0x0ED0DBEA else 0x16000000,
+            ),
             neonBorder = SdfNeonBorderStyle(
-                color = VisualThemeSettings.withAlpha(neonColor, 0xB2),
+                color = VisualThemeSettings.withAlpha(neonColor, if (VisualThemeSettings.isLightPreset()) 0x78 else 0xB2),
                 widthPx = 1.0f,
                 softnessPx = 5f,
-                strength = 0.58f,
+                strength = if (VisualThemeSettings.isLightPreset()) 0.38f else 0.58f,
             ),
         )
     }
 
     private fun slotStyle(enabled: Boolean): SdfPanelStyle {
         return SdfPanelStyle(
-            baseColor = if (enabled) 0xFF8A0922.toInt() else 0x00000000,
-            borderColor = if (enabled) 0xFF4B0613.toInt() else 0x00000000,
+            baseColor = if (enabled) {
+                if (VisualThemeSettings.isLightPreset()) VisualThemeSettings.hudIconFill() else 0xFF8A0922.toInt()
+            } else {
+                0x00000000
+            },
+            borderColor = if (enabled) {
+                if (VisualThemeSettings.isLightPreset()) VisualThemeSettings.hudIconBorder() else 0xFF4B0613.toInt()
+            } else {
+                0x00000000
+            },
             borderWidthPx = if (enabled) 1f else 0f,
             radiusPx = Layout.slotRadius,
             innerGlow = SdfGlowStyle(0xFFFFFFFF.toInt(), radiusPx = 4f, strength = if (enabled) 0.04f else 0f, opacity = if (enabled) 0.03f else 0f),
             outerGlow = SdfGlowStyle(0x00000000, radiusPx = 0f, strength = 0f, opacity = 0f),
-            shade = SdfShadeStyle(if (enabled) 0x12000000 else 0x00000000, if (enabled) 0x22000000 else 0x00000000),
+            shade = SdfShadeStyle(
+                if (!enabled) 0x00000000 else if (VisualThemeSettings.isLightPreset()) 0x08FFFFFF else 0x12000000,
+                if (!enabled) 0x00000000 else if (VisualThemeSettings.isLightPreset()) 0x0CCFDCED else 0x22000000,
+            ),
         )
     }
 

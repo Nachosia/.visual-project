@@ -87,14 +87,14 @@ internal class NotificationRenderer {
         val neon = blendColor(VisualThemeSettings.neonBorder(), textColor, 0.26f)
         val glow = blendColor(VisualThemeSettings.accentStrong(), textColor, 0.22f)
         return SdfPanelStyle(
-            baseColor = withAlpha(0xF40C121A.toInt(), alpha),
-            borderColor = withAlpha(0x94405067.toInt(), alpha),
+            baseColor = withAlpha(VisualThemeSettings.hudShellFill(), alpha),
+            borderColor = withAlpha(VisualThemeSettings.hudShellBorder(), alpha),
             borderWidthPx = 1.1f,
             radiusPx = 14f,
             innerGlow = SdfGlowStyle(withAlpha(0xFFFFFFFF.toInt(), alpha), radiusPx = 10f, strength = 0.03f, opacity = 0.03f),
-            outerGlow = SdfGlowStyle(withAlpha(glow, alpha), radiusPx = 18f, strength = 0.14f, opacity = 0.09f),
-            shade = SdfShadeStyle(withAlpha(0x10FFFFFF, alpha), withAlpha(0x18000000, alpha)),
-            neonBorder = SdfNeonBorderStyle(withAlpha(neon, alpha), widthPx = 0.95f, softnessPx = 4.5f, strength = 0.42f),
+            outerGlow = SdfGlowStyle(withAlpha(if (VisualThemeSettings.isLightPreset()) VisualThemeSettings.themedAccentGlowBase(glow) else glow, alpha), radiusPx = 18f, strength = if (VisualThemeSettings.isLightPreset()) 0.10f else 0.14f, opacity = if (VisualThemeSettings.isLightPreset()) 0.07f else 0.09f),
+            shade = SdfShadeStyle(withAlpha(VisualThemeSettings.hudShellShadeTop(), alpha), withAlpha(VisualThemeSettings.hudShellShadeBottom(), alpha)),
+            neonBorder = SdfNeonBorderStyle(withAlpha(neon, alpha), widthPx = 0.95f, softnessPx = 4.5f, strength = if (VisualThemeSettings.isLightPreset()) 0.26f else 0.42f),
         )
     }
 

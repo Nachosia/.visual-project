@@ -87,7 +87,7 @@ internal class CooldownsHudRenderer {
 
         val accentSync = ModuleStateStore.isSettingEnabled("${moduleId}:accent_sync")
         val neonColor = if (accentSync) VisualThemeSettings.neonBorder() else 0xFF7A2730.toInt()
-        val glowColor = if (accentSync) blendColor(0xFF2E0F16.toInt(), VisualThemeSettings.accentStrong(), 0.28f) else 0xFF4A171D.toInt()
+        val glowColor = if (accentSync) VisualThemeSettings.themedAccentGlowBase() else VisualThemeSettings.themedFallbackGlow(0xFF4A171D.toInt())
 
         context.pose().pushMatrix()
         context.pose().translate(bounds.x.toFloat(), bounds.y.toFloat())
@@ -192,8 +192,8 @@ internal class CooldownsHudRenderer {
 
         val label = entry.label.takeIf { font.width(vText(it)) <= nameMaxWidth }
             ?: font.substrByWidth(vText(entry.label), nameMaxWidth).string
-        context.drawString(font, vText(label), textX, y + 3, 0xFFF4F6FF.toInt(), false)
-        context.drawString(font, vText(entry.durationText), timeX, y + 3, 0xFFF4F6FF.toInt(), false)
+        context.drawString(font, vText(label), textX, y + 3, VisualThemeSettings.textPrimary(), false)
+        context.drawString(font, vText(entry.durationText), timeX, y + 3, VisualThemeSettings.textPrimary(), false)
     }
 
     private fun drawItemIcon(
@@ -350,18 +350,18 @@ internal class CooldownsHudRenderer {
 
     private fun shellStyle(glowColor: Int, neonColor: Int): SdfPanelStyle {
         return SdfPanelStyle(
-            baseColor = 0xF40C1118.toInt(),
-            borderColor = 0x91353D4E.toInt(),
+            baseColor = VisualThemeSettings.hudShellFill(),
+            borderColor = VisualThemeSettings.hudShellBorder(),
             borderWidthPx = 1.2f,
             radiusPx = Layout.shellRadius,
             innerGlow = SdfGlowStyle(0xFFFFFFFF.toInt(), radiusPx = 12f, strength = 0.03f, opacity = 0.03f),
-            outerGlow = SdfGlowStyle(glowColor, radiusPx = 22f, strength = 0.18f, opacity = 0.11f),
-            shade = SdfShadeStyle(0x10FFFFFF, 0x18000000),
+            outerGlow = SdfGlowStyle(glowColor, radiusPx = 22f, strength = if (VisualThemeSettings.isLightPreset()) 0.14f else 0.18f, opacity = if (VisualThemeSettings.isLightPreset()) 0.08f else 0.11f),
+            shade = SdfShadeStyle(VisualThemeSettings.hudShellShadeTop(), VisualThemeSettings.hudShellShadeBottom()),
             neonBorder = SdfNeonBorderStyle(
-                color = VisualThemeSettings.withAlpha(neonColor, 0x88),
+                color = VisualThemeSettings.withAlpha(neonColor, if (VisualThemeSettings.isLightPreset()) 0x62 else 0x88),
                 widthPx = 1.0f,
                 softnessPx = 5f,
-                strength = 0.52f,
+                strength = if (VisualThemeSettings.isLightPreset()) 0.36f else 0.52f,
             ),
         )
     }

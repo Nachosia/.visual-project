@@ -10,6 +10,7 @@ import com.visualproject.client.render.sdf.SdfNeonBorderStyle
 import com.visualproject.client.render.sdf.SdfPanelRenderer
 import com.visualproject.client.render.sdf.SdfPanelStyle
 import com.visualproject.client.render.sdf.SdfShadeStyle
+import com.visualproject.client.texture.NonDumpableDynamicTexture
 import com.visualproject.client.ui.menu.blendColor
 import com.visualproject.client.vText
 import net.minecraft.client.Minecraft
@@ -18,7 +19,6 @@ import net.minecraft.client.gui.screens.ChatScreen
 import net.minecraft.client.gui.screens.Screen
 import net.minecraft.client.input.MouseButtonEvent
 import net.minecraft.client.renderer.RenderPipelines
-import net.minecraft.client.renderer.texture.DynamicTexture
 import net.minecraft.resources.Identifier
 import java.awt.AlphaComposite
 import java.awt.Color
@@ -327,7 +327,7 @@ internal class GifHudRenderer {
         image: BufferedImage,
     ): Identifier {
         val textureId = mediaTextureId(selection, suffix)
-        client.textureManager.register(textureId, DynamicTexture({ "visualclient-gif-hud" }, nativeImageFromBuffered(image)))
+        client.textureManager.register(textureId, NonDumpableDynamicTexture({ "visualclient-gif-hud" }, nativeImageFromBuffered(image)))
         return textureId
     }
 
@@ -702,7 +702,7 @@ internal class GifHudRenderer {
     }
 
     private fun drawPlaceholder(context: GuiGraphics, bounds: GifHudBounds, fileName: String?) {
-        val glowColor = blendColor(0xFF2E0F16.toInt(), VisualThemeSettings.accentStrong(), 0.24f)
+        val glowColor = VisualThemeSettings.themedAccentGlowBase()
         SdfPanelRenderer.draw(
             context,
             bounds.x,
@@ -710,23 +710,23 @@ internal class GifHudRenderer {
             bounds.width,
             bounds.height,
             SdfPanelStyle(
-                baseColor = 0xF40C1118.toInt(),
-                borderColor = 0x91353D4E.toInt(),
+                baseColor = VisualThemeSettings.hudShellFill(),
+                borderColor = VisualThemeSettings.hudShellBorder(),
                 borderWidthPx = 1.1f,
                 radiusPx = Layout.placeholderRadius,
                 innerGlow = SdfGlowStyle(0xFFFFFFFF.toInt(), radiusPx = 10f, strength = 0.03f, opacity = 0.03f),
-                outerGlow = SdfGlowStyle(glowColor, radiusPx = 20f, strength = 0.16f, opacity = 0.10f),
-                shade = SdfShadeStyle(0x10FFFFFF, 0x18000000),
-                neonBorder = SdfNeonBorderStyle(VisualThemeSettings.withAlpha(VisualThemeSettings.neonBorder(), 0x7A), widthPx = 1.0f, softnessPx = 5f, strength = 0.46f),
+                outerGlow = SdfGlowStyle(glowColor, radiusPx = 20f, strength = if (VisualThemeSettings.isLightPreset()) 0.10f else 0.16f, opacity = if (VisualThemeSettings.isLightPreset()) 0.07f else 0.10f),
+                shade = SdfShadeStyle(VisualThemeSettings.hudShellShadeTop(), VisualThemeSettings.hudShellShadeBottom()),
+                neonBorder = SdfNeonBorderStyle(VisualThemeSettings.withAlpha(VisualThemeSettings.neonBorder(), if (VisualThemeSettings.isLightPreset()) 0x54 else 0x7A), widthPx = 1.0f, softnessPx = 5f, strength = if (VisualThemeSettings.isLightPreset()) 0.28f else 0.46f),
             ),
         )
-        context.drawString(Minecraft.getInstance().font, vText("MEDIA HUD"), bounds.x + 14, bounds.y + 16, 0xFFF4F6FF.toInt(), false)
+        context.drawString(Minecraft.getInstance().font, vText("MEDIA HUD"), bounds.x + 14, bounds.y + 16, VisualThemeSettings.textPrimary(), false)
         context.drawString(
             Minecraft.getInstance().font,
             vText(fileName?.let { "Missing: $it" } ?: "Put media in Visual/gif or Visual/png"),
             bounds.x + 14,
             bounds.y + 31,
-            0xFF8490B3.toInt(),
+            VisualThemeSettings.textSecondary(),
             false,
         )
     }

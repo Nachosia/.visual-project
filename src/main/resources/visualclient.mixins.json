@@ -4,7 +4,7 @@
   "compatibilityLevel": "JAVA_21",
   "mixins": [
     "GameRendererMixin",
-    "SoundManagerMixin"
+    "PlayerAttackSoundMixin"
   ],
   "injectors": {
     "defaultRequire": 1

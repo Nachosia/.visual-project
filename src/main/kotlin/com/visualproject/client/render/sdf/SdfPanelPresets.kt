@@ -12,33 +12,33 @@ object SdfPanelPresets {
     )
 
     fun testRed(): SdfPanelStyle = SdfPanelStyle(
-        baseColor = 0xF01A1118.toInt(),
-        borderColor = 0xFF5D415B.toInt(),
+        baseColor = 0xF0101319.toInt(),
+        borderColor = 0xFFFF73C8.toInt(),
         borderWidthPx = 1.5f,
         radiusPx = 18f,
-        innerGlow = SdfGlowStyle(0xFFFF7AB8.toInt(), radiusPx = 16f, strength = 0.33f, opacity = 0.42f),
-        outerGlow = SdfGlowStyle(0xFFB04B8A.toInt(), radiusPx = 34f, strength = 0.18f, opacity = 0.34f),
-        shade = SdfShadeStyle(topColor = 0x18FFFFFF, bottomColor = 0x26000000),
+        innerGlow = SdfGlowStyle(0xFFFF8FD2.toInt(), radiusPx = 16f, strength = 0.28f, opacity = 0.32f),
+        outerGlow = SdfGlowStyle(0xFFFF63BE.toInt(), radiusPx = 34f, strength = 0.20f, opacity = 0.38f),
+        shade = SdfShadeStyle(topColor = 0x0AFFFFFF, bottomColor = 0x12000000),
     )
 
     fun testBlue(): SdfPanelStyle = SdfPanelStyle(
-        baseColor = 0xF0101722.toInt(),
-        borderColor = 0xFF3F6083.toInt(),
+        baseColor = 0xF010141A.toInt(),
+        borderColor = 0xFF69B6FF.toInt(),
         borderWidthPx = 1f,
         radiusPx = 24f,
-        innerGlow = SdfGlowStyle(0xFF6BB6FF.toInt(), radiusPx = 14f, strength = 0.35f, opacity = 0.45f),
-        outerGlow = SdfGlowStyle(0xFF326DCC.toInt(), radiusPx = 38f, strength = 0.16f, opacity = 0.30f),
-        shade = SdfShadeStyle(topColor = 0x16FFFFFF, bottomColor = 0x1A000000),
+        innerGlow = SdfGlowStyle(0xFF7CC2FF.toInt(), radiusPx = 14f, strength = 0.28f, opacity = 0.34f),
+        outerGlow = SdfGlowStyle(0xFF4F9DFF.toInt(), radiusPx = 38f, strength = 0.18f, opacity = 0.34f),
+        shade = SdfShadeStyle(topColor = 0x0AFFFFFF, bottomColor = 0x12000000),
     )
 
     fun testGreen(): SdfPanelStyle = SdfPanelStyle(
-        baseColor = 0xF0101C1D.toInt(),
-        borderColor = 0xFF39696C.toInt(),
+        baseColor = 0xF0101513.toInt(),
+        borderColor = 0xFF72FFD9.toInt(),
         borderWidthPx = 1.5f,
         radiusPx = 12f,
-        innerGlow = SdfGlowStyle(0xFF7BE8E0.toInt(), radiusPx = 18f, strength = 0.28f, opacity = 0.40f),
-        outerGlow = SdfGlowStyle(0xFF2D8E88.toInt(), radiusPx = 30f, strength = 0.16f, opacity = 0.30f),
-        shade = SdfShadeStyle(topColor = 0x0EFFFFFF, bottomColor = 0x28000000),
+        innerGlow = SdfGlowStyle(0xFF8AFFE4.toInt(), radiusPx = 18f, strength = 0.24f, opacity = 0.30f),
+        outerGlow = SdfGlowStyle(0xFF53F2C7.toInt(), radiusPx = 30f, strength = 0.18f, opacity = 0.34f),
+        shade = SdfShadeStyle(topColor = 0x08FFFFFF, bottomColor = 0x10000000),
     )
 
     fun shell(): SdfPanelStyle = SdfPanelStyle(

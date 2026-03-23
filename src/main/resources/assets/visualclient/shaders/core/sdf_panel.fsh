@@ -29,6 +29,12 @@ out vec4 fragColor;
 #moj_import <visualclient:sdf_shapes.glsl>
 #moj_import <visualclient:sdf_lighting.glsl>
 
+vec3 screenBlend(vec3 base, vec3 tint, float amount) {
+    float factor = clamp(amount, 0.0, 1.0);
+    vec3 screened = 1.0 - ((1.0 - base) * (1.0 - tint));
+    return mix(base, screened, factor);
+}
+
 void main() {
     vec2 panelSize = Rect.zw;
     vec2 clipMin = ClipRect.xy;
@@ -69,10 +75,10 @@ void main() {
     vec4 panel = BaseColor;
     vec4 currentShade = mix(ShadeTopColor, ShadeBottomColor, shadeFactor);
     panel.rgb = mix(panel.rgb, currentShade.rgb, currentShade.a);
-    panel.rgb = mix(panel.rgb, InnerGlowColor.rgb, innerMask * InnerGlowColor.a);
-    panel.rgb = mix(panel.rgb, BorderColor.rgb, borderMask * BorderColor.a);
-    panel.rgb = mix(panel.rgb, NeonBorderColor.rgb, neonCoreMask);
-    panel.rgb = clamp(panel.rgb + (NeonBorderColor.rgb * neonGlowMask * 0.35), 0.0, 1.0);
+    panel.rgb = screenBlend(panel.rgb, InnerGlowColor.rgb, innerMask * InnerGlowColor.a);
+    panel.rgb = screenBlend(panel.rgb, BorderColor.rgb, borderMask * BorderColor.a);
+    panel.rgb = screenBlend(panel.rgb, NeonBorderColor.rgb, neonCoreMask);
+    panel.rgb = screenBlend(panel.rgb, NeonBorderColor.rgb, neonGlowMask * 0.55);
     panel.a *= shapeMask;
 
     float outerAlpha = OuterGlowColor.a * outerMask;

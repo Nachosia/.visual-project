@@ -18,8 +18,15 @@ object CustomSoundPlayer {
 
     fun play(rawSoundName: String, volume: Float = 1f) {
         val clampedVolume = volume.coerceIn(0f, 1f)
-        if (clampedVolume <= 0f) return
-        val bytes = CustomSoundRegistry.loadBytes(rawSoundName) ?: return
+        if (clampedVolume <= 0f) {
+            VisualClientMod.LOGGER.info("custom-sound: skip sound='{}' reason='volume-zero'", rawSoundName)
+            return
+        }
+        val bytes = CustomSoundRegistry.loadBytes(rawSoundName)
+        if (bytes == null) {
+            VisualClientMod.LOGGER.warn("custom-sound: missing sound='{}'", rawSoundName)
+            return
+        }
         executor.execute {
             try {
                 val player = Player(ByteArrayInputStream(bytes), VolumeAudioDevice(clampedVolume))

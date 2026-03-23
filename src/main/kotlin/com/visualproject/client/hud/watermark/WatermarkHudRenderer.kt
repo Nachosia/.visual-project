@@ -8,6 +8,8 @@ import com.visualproject.client.render.sdf.SdfNeonBorderStyle
 import com.visualproject.client.render.sdf.SdfPanelRenderer
 import com.visualproject.client.render.sdf.SdfPanelStyle
 import com.visualproject.client.render.sdf.SdfShadeStyle
+import com.visualproject.client.texture.NonDumpableDynamicTexture
+import com.visualproject.client.ui.menu.blendColor
 import com.visualproject.client.vText
 import com.visualproject.client.vBrandText
 import net.minecraft.client.DeltaTracker
@@ -17,7 +19,6 @@ import net.minecraft.client.gui.GuiGraphics
 import net.minecraft.client.gui.screens.Screen
 import net.minecraft.client.input.MouseButtonEvent
 import net.minecraft.client.renderer.RenderPipelines
-import net.minecraft.client.renderer.texture.DynamicTexture
 import net.minecraft.resources.Identifier
 import org.slf4j.LoggerFactory
 import java.nio.file.Files
@@ -274,7 +275,7 @@ class WatermarkHudRenderer(
             title,
             titleX,
             baselineY,
-            withAlpha(WatermarkHudTheme.textPrimary, alpha),
+            withAlpha(watermarkTextPrimaryColor(), alpha),
             false,
         )
 
@@ -283,7 +284,7 @@ class WatermarkHudRenderer(
             vText(infoText),
             infoX,
             baselineY,
-            withAlpha(WatermarkHudTheme.textSecondary, alpha),
+            withAlpha(watermarkTextSecondaryColor(), alpha),
             false,
         )
     }
@@ -311,9 +312,9 @@ class WatermarkHudRenderer(
         val textWidth = (rightMarkerX - 8 - textX).coerceAtLeast(28)
         val textY = baselineY
         val clippedTitle = clipStyledText(track.title, textWidth, font)
-        context.drawString(font, clippedTitle, textX, textY, withAlpha(WatermarkHudTheme.textPrimary, alpha), false)
+        context.drawString(font, clippedTitle, textX, textY, withAlpha(watermarkTextPrimaryColor(), alpha), false)
 
-        context.drawString(font, vText(rightMarker), rightMarkerX, textY, withAlpha(WatermarkHudTheme.textMuted, alpha), false)
+        context.drawString(font, vText(rightMarker), rightMarkerX, textY, withAlpha(watermarkTextMutedColor(), alpha), false)
     }
 
     private fun drawEyeIcon(
@@ -422,8 +423,8 @@ class WatermarkHudRenderer(
         val clippedSubtitle = clipStyledText(subtitle, titleMaxWidth, font)
         val titleY = (artworkY + 1).coerceAtLeast(contentTop + 1)
         val artistY = (titleY + font.lineHeight + 1).coerceAtMost(controlsY - 14)
-        context.drawString(font, clippedTitle, textLeft, titleY, withAlpha(WatermarkHudTheme.textPrimary, alpha), false)
-        context.drawString(font, clippedSubtitle, textLeft, artistY, withAlpha(WatermarkHudTheme.textSecondary, alpha), false)
+        context.drawString(font, clippedTitle, textLeft, titleY, withAlpha(watermarkTextPrimaryColor(), alpha), false)
+        context.drawString(font, clippedSubtitle, textLeft, artistY, withAlpha(watermarkTextSecondaryColor(), alpha), false)
 
         val progressX = textLeft
         val timeText = "${formatTime(track.positionSeconds)} / ${formatTime(track.durationSeconds)}"
@@ -442,8 +443,8 @@ class WatermarkHudRenderer(
             progressY,
             progressWidth,
             progressHeight,
-            withAlpha(WatermarkHudTheme.progressTrack, alpha),
-            withAlpha(WatermarkHudTheme.progressBorder, alpha),
+            withAlpha(watermarkProgressTrackColor(), alpha),
+            withAlpha(watermarkProgressBorderColor(), alpha),
             2,
         )
 
@@ -457,7 +458,7 @@ class WatermarkHudRenderer(
                 fillWidth - 2,
                 (progressHeight - 2).coerceAtLeast(1),
                 1,
-                withAlpha(WatermarkHudTheme.progressFill, alpha),
+                withAlpha(watermarkProgressFillColor(), alpha),
             )
         }
 
@@ -466,7 +467,7 @@ class WatermarkHudRenderer(
             vText(timeText),
             timeX,
             controlsY + ((WatermarkHudTheme.expandedControlSize - font.lineHeight) / 2),
-            withAlpha(WatermarkHudTheme.textMuted, alpha),
+            withAlpha(watermarkTextMutedColor(), alpha),
             false,
         )
 
@@ -590,7 +591,7 @@ class WatermarkHudRenderer(
             vText("M"),
             x + (size / 2) - 3,
             y + (size / 2) - 4,
-            withAlpha(WatermarkHudTheme.accent, alpha),
+            withAlpha(watermarkAccentColor(), alpha),
             false,
         )
     }
@@ -667,8 +668,12 @@ class WatermarkHudRenderer(
         alpha: Float,
         hovered: Boolean,
     ) {
-        val fill = if (hovered) 0xAA1A2237.toInt() else 0x7A121A2D
-        val border = if (hovered) WatermarkHudTheme.accent else 0x4F3A4561
+        val fill = if (hovered) {
+            if (VisualThemeSettings.isLightPreset()) 0xCFE6EEF8.toInt() else 0xAA1A2237.toInt()
+        } else {
+            if (VisualThemeSettings.isLightPreset()) 0xA9EDF3FA.toInt() else 0x7A121A2D
+        }
+        val border = if (hovered) watermarkAccentColor() else if (VisualThemeSettings.isLightPreset()) 0x8DBFD1E4.toInt() else 0x4F3A4561
 
         drawRoundedPanel(
             context,
@@ -687,19 +692,39 @@ class WatermarkHudRenderer(
             vText(label),
             bounds.left + ((bounds.width - textWidth) / 2),
             bounds.top + ((bounds.height - font.lineHeight) / 2),
-            withAlpha(WatermarkHudTheme.textPrimary, alpha),
+            withAlpha(watermarkTextPrimaryColor(), alpha),
             false,
         )
     }
 
+    private fun watermarkTextPrimaryColor(): Int = if (VisualThemeSettings.isLightPreset()) 0xFF111111.toInt() else WatermarkHudTheme.textPrimary
+
+    private fun watermarkTextSecondaryColor(): Int = if (VisualThemeSettings.isLightPreset()) 0xFF232323.toInt() else WatermarkHudTheme.textSecondary
+
+    private fun watermarkTextMutedColor(): Int = if (VisualThemeSettings.isLightPreset()) 0xFF363636.toInt() else WatermarkHudTheme.textMuted
+
+    private fun watermarkAccentColor(): Int = if (VisualThemeSettings.isLightPreset()) VisualThemeSettings.accentStrong() else WatermarkHudTheme.accent
+
+    private fun watermarkProgressTrackColor(): Int = if (VisualThemeSettings.isLightPreset()) VisualThemeSettings.hudTrackFill() else WatermarkHudTheme.progressTrack
+
+    private fun watermarkProgressBorderColor(): Int = if (VisualThemeSettings.isLightPreset()) VisualThemeSettings.hudTrackBorder() else WatermarkHudTheme.progressBorder
+
+    private fun watermarkProgressFillColor(): Int {
+        return if (VisualThemeSettings.isLightPreset()) {
+            blendColor(0xFFF4F8FE.toInt(), WatermarkHudTheme.progressFill, 0.72f)
+        } else {
+            WatermarkHudTheme.progressFill
+        }
+    }
+
     private fun watermarkShellStyle(expansion: Float): SdfPanelStyle {
         val accentSync = ModuleStateStore.isSettingEnabled("${watermarkModuleId}:accent_sync")
-        val accentColor = if (accentSync) VisualThemeSettings.accentStrong() else WatermarkHudTheme.accent
-        val neonColor = if (accentSync) VisualThemeSettings.neonBorder() else WatermarkHudTheme.accent
+        val accentColor = if (accentSync) VisualThemeSettings.accentStrong() else watermarkAccentColor()
+        val neonColor = if (accentSync) VisualThemeSettings.neonBorder() else watermarkAccentColor()
 
         return SdfPanelStyle(
-            baseColor = WatermarkHudTheme.panelFill,
-            borderColor = WatermarkHudTheme.panelBorder,
+            baseColor = if (VisualThemeSettings.isLightPreset()) VisualThemeSettings.hudShellFill() else WatermarkHudTheme.panelFill,
+            borderColor = if (VisualThemeSettings.isLightPreset()) VisualThemeSettings.hudShellBorder() else WatermarkHudTheme.panelBorder,
             borderWidthPx = 1.25f,
             radiusPx = WatermarkHudTheme.radius + (expansion * 2f),
             innerGlow = SdfGlowStyle(
@@ -709,28 +734,28 @@ class WatermarkHudRenderer(
                 opacity = 0.10f,
             ),
             outerGlow = SdfGlowStyle(
-                color = accentColor,
+                color = if (VisualThemeSettings.isLightPreset()) VisualThemeSettings.themedAccentGlowBase(accentColor) else accentColor,
                 radiusPx = 18f + (expansion * 8f),
-                strength = 0.18f,
-                opacity = 0.10f + (expansion * 0.05f),
+                strength = if (VisualThemeSettings.isLightPreset()) 0.12f else 0.18f,
+                opacity = (if (VisualThemeSettings.isLightPreset()) 0.07f else 0.10f) + (expansion * if (VisualThemeSettings.isLightPreset()) 0.03f else 0.05f),
             ),
             shade = SdfShadeStyle(
-                topColor = 0x12FFFFFF,
-                bottomColor = 0x28000000,
+                topColor = if (VisualThemeSettings.isLightPreset()) 0x08FFFFFF else 0x12FFFFFF,
+                bottomColor = if (VisualThemeSettings.isLightPreset()) 0x0ED0DBEA else 0x28000000,
             ),
             neonBorder = SdfNeonBorderStyle(
-                color = VisualThemeSettings.withAlpha(neonColor, 0xC8),
+                color = VisualThemeSettings.withAlpha(neonColor, if (VisualThemeSettings.isLightPreset()) 0x84 else 0xC8),
                 widthPx = 1.05f,
                 softnessPx = 5.5f + (expansion * 1.5f),
-                strength = 0.76f,
+                strength = if (VisualThemeSettings.isLightPreset()) 0.42f else 0.76f,
             ),
         )
     }
 
     private fun watermarkExpandedInnerStyle(alpha: Float, radiusPx: Float): SdfPanelStyle {
         return SdfPanelStyle(
-            baseColor = withAlpha(WatermarkHudTheme.expandedInnerFill, alpha),
-            borderColor = withAlpha(WatermarkHudTheme.expandedInnerBorder, alpha),
+            baseColor = withAlpha(if (VisualThemeSettings.isLightPreset()) VisualThemeSettings.hudInnerFill() else WatermarkHudTheme.expandedInnerFill, alpha),
+            borderColor = withAlpha(if (VisualThemeSettings.isLightPreset()) VisualThemeSettings.hudInnerBorder() else WatermarkHudTheme.expandedInnerBorder, alpha),
             borderWidthPx = 1f,
             radiusPx = radiusPx,
             innerGlow = SdfGlowStyle(
@@ -740,20 +765,20 @@ class WatermarkHudRenderer(
                 opacity = 0.08f * alpha,
             ),
             outerGlow = SdfGlowStyle(
-                color = 0xFF000000.toInt(),
-                radiusPx = 0f,
-                strength = 0f,
-                opacity = 0f,
+                color = if (VisualThemeSettings.isLightPreset()) 0xFFE4ECF6.toInt() else 0xFF000000.toInt(),
+                radiusPx = if (VisualThemeSettings.isLightPreset()) 12f else 0f,
+                strength = if (VisualThemeSettings.isLightPreset()) 0.06f else 0f,
+                opacity = if (VisualThemeSettings.isLightPreset()) 0.05f * alpha else 0f,
             ),
             shade = SdfShadeStyle(
-                topColor = withAlpha(0x14FFFFFF, alpha),
-                bottomColor = withAlpha(0x14000000, alpha),
+                topColor = withAlpha(if (VisualThemeSettings.isLightPreset()) 0x08FFFFFF else 0x14FFFFFF, alpha),
+                bottomColor = withAlpha(if (VisualThemeSettings.isLightPreset()) 0x0CD0DBEA else 0x14000000, alpha),
             ),
             neonBorder = SdfNeonBorderStyle(
-                color = VisualThemeSettings.withAlpha(VisualThemeSettings.neonBorder(), 0x52),
+                color = VisualThemeSettings.withAlpha(VisualThemeSettings.neonBorder(), if (VisualThemeSettings.isLightPreset()) 0x30 else 0x52),
                 widthPx = 0.9f,
                 softnessPx = 4f,
-                strength = 0.30f,
+                strength = if (VisualThemeSettings.isLightPreset()) 0.18f else 0.30f,
             ),
         )
     }
@@ -1067,7 +1092,7 @@ class WatermarkHudRenderer(
             )
 
             // Do not close this NativeImage manually: DynamicTexture owns it after registration.
-            client.textureManager.register(textureId, DynamicTexture({ "visualclient-watermark-artwork" }, image))
+            client.textureManager.register(textureId, NonDumpableDynamicTexture({ "visualclient-watermark-artwork" }, image))
             artworkTextureCache[cacheKey] = textureId
             artworkTextureSizes[cacheKey] = image.width to image.height
             artworkSourceSizeByPath[artworkPath] = image.width to image.height
