@@ -4,6 +4,7 @@ import com.mojang.blaze3d.platform.InputConstants
 import com.visualproject.client.hud.armor.ArmorHudModule
 import com.visualproject.client.hud.cooldowns.CooldownsHudModule
 import com.visualproject.client.hud.gif.GifHudModule
+import com.visualproject.client.hud.itembar.ItemBarHudModule
 import com.visualproject.client.hud.potions.PotionHudModule
 import com.visualproject.client.hud.test.TestSdfHud
 import com.visualproject.client.hud.target.TargetHudModule
@@ -68,6 +69,7 @@ object VisualClientMod : ClientModInitializer {
         ArmorHudModule.initialize()
         CooldownsHudModule.initialize()
         GifHudModule.initialize()
+        ItemBarHudModule.initialize()
         NotificationsModule.initialize()
         PotionHudModule.initialize()
         TargetHudModule.initialize()

@@ -912,14 +912,24 @@ class WatermarkHudRenderer(
             smoothedDurationSeconds = track.durationSeconds.coerceAtLeast(0f)
             lastProviderSnapshot = track
         } else if (providerSnapshotChanged) {
-            val targetPosition = track.positionSeconds.coerceAtLeast(0f)
+            val targetDuration = track.durationSeconds.coerceAtLeast(0f)
+            val rawTargetPosition = track.positionSeconds.coerceAtLeast(0f)
+            val durationStable = targetDuration <= 0f ||
+                smoothedDurationSeconds <= 0f ||
+                abs(targetDuration - smoothedDurationSeconds) <= 2.5f
+            val browserTimelineRegression = track.playbackState == WatermarkPlaybackState.PLAYING &&
+                isBrowserBackedMusicSource(track.source) &&
+                durationStable &&
+                rawTargetPosition > 0f &&
+                rawTargetPosition + 1.25f < smoothedPositionSeconds &&
+                smoothedPositionSeconds - rawTargetPosition < 15f
+            val targetPosition = if (browserTimelineRegression) smoothedPositionSeconds else rawTargetPosition
             val diff = targetPosition - smoothedPositionSeconds
             smoothedPositionSeconds = when {
                 abs(diff) >= 7f -> targetPosition
                 else -> smoothedPositionSeconds + (diff * 0.34f)
             }
 
-            val targetDuration = track.durationSeconds.coerceAtLeast(0f)
             smoothedDurationSeconds = when {
                 targetDuration <= 0f -> smoothedDurationSeconds
                 smoothedDurationSeconds <= 0f -> targetDuration
@@ -948,6 +958,13 @@ class WatermarkHudRenderer(
             durationSeconds = smoothedDurationSeconds.coerceAtLeast(track.durationSeconds.coerceAtLeast(0f)),
             artworkTexture = displayedArtworkTexture ?: artworkResolution.texture,
         )
+    }
+
+    private fun isBrowserBackedMusicSource(source: String): Boolean {
+        return when (source.lowercase()) {
+            "yandex_music", "vk_music", "soundcloud" -> true
+            else -> false
+        }
     }
 
     private fun updateDisplayedArtwork(artworkPath: String?, resolvedTexture: Identifier?) {

@@ -45,6 +45,8 @@ internal class NotificationRenderer {
             if (alpha <= 0f) return@forEach
 
             val textWidth = font.width(vText(toast.text))
+            val maxTextWidth = Layout.maxWidth - (Layout.paddingLeft + Layout.markerSize + Layout.markerGap + Layout.paddingRight)
+            val clippedText = font.substrByWidth(vText(toast.text), maxTextWidth).string
             val width = (Layout.paddingLeft + Layout.markerSize + Layout.markerGap + textWidth + Layout.paddingRight)
                 .coerceIn(Layout.minWidth, Layout.maxWidth)
             val x = screenWidth - width - Layout.marginRight
@@ -74,7 +76,7 @@ internal class NotificationRenderer {
             val textColor = withAlpha(toast.textColor, alpha)
             context.drawString(
                 font,
-                font.plainSubstrByWidth(toast.text, width - (Layout.paddingLeft + Layout.markerSize + Layout.markerGap + Layout.paddingRight)),
+                vText(clippedText),
                 x + Layout.paddingLeft + Layout.markerSize + Layout.markerGap,
                 y + 12,
                 textColor,

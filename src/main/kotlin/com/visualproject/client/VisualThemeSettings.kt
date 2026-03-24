@@ -15,7 +15,20 @@ object VisualThemeSettings {
         }
     }
 
+    enum class ThemeFont(val id: String, val label: String) {
+        JALNAN("jalnan", "Jalnan"),
+        SATYR("satyrsp", "Satyr"),
+        BLACKCRAFT("blackcraft", "Blackcraft");
+
+        companion object {
+            fun fromId(raw: String): ThemeFont {
+                return entries.firstOrNull { it.id.equals(raw.trim(), ignoreCase = true) } ?: JALNAN
+            }
+        }
+    }
+
     const val menuPresetKey = "theme:menu_preset"
+    const val themeFontKey = "theme:font"
     const val accentColorKey = "theme:accent_color"
     const val neonBorderColorKey = "theme:neon_border_color"
     const val neonBorderEnabledKey = "theme:neon_border_enabled"
@@ -26,6 +39,7 @@ object VisualThemeSettings {
 
     fun initializeDefaults() {
         ModuleStateStore.ensureTextSetting(menuPresetKey, MenuPreset.DARK.id)
+        ModuleStateStore.ensureTextSetting(themeFontKey, ThemeFont.JALNAN.id)
         ModuleStateStore.ensureTextSetting(accentColorKey, "#8A71FF")
         ModuleStateStore.ensureTextSetting(neonBorderColorKey, "#8A71FF")
         ModuleStateStore.ensureSetting(neonBorderEnabledKey, defaultValue = true)
@@ -36,6 +50,8 @@ object VisualThemeSettings {
     }
 
     fun menuPreset(): MenuPreset = MenuPreset.fromId(ModuleStateStore.getTextSetting(menuPresetKey, MenuPreset.DARK.id))
+
+    fun themeFont(): ThemeFont = ThemeFont.fromId(ModuleStateStore.getTextSetting(themeFontKey, ThemeFont.JALNAN.id))
 
     fun isLightPreset(): Boolean = menuPreset() == MenuPreset.LIGHT
 

@@ -2,6 +2,7 @@ package com.visualproject.client
 
 import com.mojang.blaze3d.platform.NativeImage
 import com.visualproject.client.audio.CustomSoundRegistry
+import com.visualproject.client.hud.itembar.ItemBarHudModule
 import com.visualproject.client.notifications.NotificationsSettings
 import com.visualproject.client.render.sdf.SdfGlowStyle
 import com.visualproject.client.render.sdf.SdfNeonBorderStyle
@@ -179,6 +180,7 @@ class ExperimentalVisualsMenuScreen : Screen(Component.empty()) {
         VisualMenuModuleEntry("cooldowns_hud", "Cooldowns HUD", "C", VisualMenuTab.HUD),
         VisualMenuModuleEntry("effect_notify", "Notifications", "E", VisualMenuTab.HUD),
         VisualMenuModuleEntry("gif_hud", "GIF", "G", VisualMenuTab.HUD),
+        VisualMenuModuleEntry("item_bar_hud", "Item Bar", "I", VisualMenuTab.HUD),
         VisualMenuModuleEntry("potions", "Potions", "P", VisualMenuTab.HUD),
         VisualMenuModuleEntry(VisualClientMod.sdfTestModuleId, "SDF Test HUD", "Q", VisualMenuTab.HUD),
         VisualMenuModuleEntry("target_hud", "Target HUD", "T", VisualMenuTab.HUD),
@@ -232,6 +234,9 @@ class ExperimentalVisualsMenuScreen : Screen(Component.empty()) {
             }
             if (module.id == "watermark") {
                 ModuleStateStore.ensureSetting("${module.id}:music_scan", defaultValue = true)
+            }
+            if (module.id == "item_bar_hud") {
+                ModuleStateStore.ensureSetting("${module.id}:hide_vanilla_hotbar", defaultValue = true)
             }
             if (module.id == "gif_hud") {
                 ModuleStateStore.ensureSetting("${module.id}:chroma_key_enabled", defaultValue = true)
@@ -1188,6 +1193,13 @@ class ExperimentalVisualsMenuScreen : Screen(Component.empty()) {
                 VisualThemeSettings.MenuPreset.DARK.id to "Dark",
                 VisualThemeSettings.MenuPreset.LIGHT.id to "White",
             )
+            addChoice(
+                VisualThemeSettings.themeFontKey,
+                "Font",
+                VisualThemeSettings.ThemeFont.JALNAN.id to VisualThemeSettings.ThemeFont.JALNAN.label,
+                VisualThemeSettings.ThemeFont.SATYR.id to VisualThemeSettings.ThemeFont.SATYR.label,
+                VisualThemeSettings.ThemeFont.BLACKCRAFT.id to VisualThemeSettings.ThemeFont.BLACKCRAFT.label,
+            )
             addToggle(VisualThemeSettings.neonBorderEnabledKey, "Neon Border")
             addToggle(VisualThemeSettings.neonGlowEnabledKey, "Neon Glow")
             addInput(VisualThemeSettings.accentColorKey, "Accent Glow", "#RRGGBB")
@@ -1267,6 +1279,10 @@ class ExperimentalVisualsMenuScreen : Screen(Component.empty()) {
         }
         if (selectedModule.id == "watermark") {
             addToggle("${selectedModule.id}:music_scan", "Music Scan")
+        }
+        if (selectedModule.id == "item_bar_hud") {
+            addToggle(ItemBarHudModule.showPlayerStatusKey, "Show Player Status")
+            addToggle("${selectedModule.id}:hide_vanilla_hotbar", "Hide Vanilla Hotbar")
         }
         if (selectedModule.id == "armor_hud") {
             addToggle("${selectedModule.id}:slot_background", "Slot Background")
@@ -1721,6 +1737,7 @@ class ExperimentalVisualsMenuScreen : Screen(Component.empty()) {
 
     private fun choiceAffectsLayout(key: String): Boolean {
         return key == VisualThemeSettings.menuPresetKey ||
+            key == VisualThemeSettings.themeFontKey ||
             key == NotificationsSettings.modeKey ||
             key == NotificationsSettings.hitSoundModeKey ||
             key == NotificationsSettings.critSoundModeKey

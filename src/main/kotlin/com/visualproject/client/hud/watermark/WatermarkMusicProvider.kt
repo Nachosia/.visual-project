@@ -59,6 +59,7 @@ internal enum class PlaybackAction(val id: String) {
 
 internal data class SessionSnapshot(
     val source: String,
+    val sourceAppId: String,
     val title: String,
     val artist: String,
     val album: String,
@@ -279,6 +280,7 @@ internal class WindowsNativeBridgeGateway : MediaSessionGateway {
 
         return SessionSnapshot(
             source = obj.get("source")?.asString?.trim().orEmpty(),
+            sourceAppId = obj.get("sourceAppId")?.asString?.trim().orEmpty(),
             title = obj.get("title")?.asString?.trim().orEmpty(),
             artist = obj.get("artist")?.asString?.trim().orEmpty(),
             album = obj.get("album")?.asString?.trim().orEmpty(),
@@ -771,13 +773,15 @@ internal class SpotifySoundCloudMusicProvider(
         val titlePresent = session.title.isNotBlank()
         val spotify = isSpotifySession(session)
         val soundCloud = isSoundCloudSession(session)
-        val preferred = spotify || soundCloud
+        val yandexMusic = isYandexMusicSession(session)
+        val vkMusic = isVkMusicSession(session)
+        val preferred = spotify || soundCloud || yandexMusic || vkMusic
         val accepted = active && titlePresent
         val priority = if (accepted) computePriority(session, preferred) else Int.MIN_VALUE
 
         val reason = when {
-            accepted && preferred && session.isCurrent -> "accepted: current spotify/soundcloud session"
-            accepted && preferred -> "accepted: spotify/soundcloud session with valid metadata"
+            accepted && preferred && session.isCurrent -> "accepted: current preferred media service session"
+            accepted && preferred -> "accepted: preferred media service session with valid metadata"
             accepted && session.isCurrent -> "accepted: current media session fallback"
             accepted -> "accepted: media session fallback"
             !active -> "rejected: status is not active (${session.status})"
@@ -822,6 +826,8 @@ internal class SpotifySoundCloudMusicProvider(
         return when {
             isSpotifySession(session) -> "spotify"
             isSoundCloudSession(session) -> "soundcloud"
+            isYandexMusicSession(session) -> "yandex_music"
+            isVkMusicSession(session) -> "vk_music"
             else -> session.source.ifBlank { "media" }
         }
     }
@@ -837,14 +843,14 @@ internal class SpotifySoundCloudMusicProvider(
     }
 
     private fun isSpotifySession(session: SessionSnapshot): Boolean {
-        val haystack = listOf(session.source, session.title, session.artist, session.album, session.subtitle)
+        val haystack = listOf(session.source, session.sourceAppId, session.title, session.artist, session.album, session.subtitle)
             .joinToString(" ")
             .lowercase(Locale.ROOT)
         return "spotify" in haystack
     }
 
     private fun isSoundCloudSession(session: SessionSnapshot): Boolean {
-        val source = session.source.lowercase(Locale.ROOT)
+        val source = sourceMetadata(session)
         val metadata = listOf(session.title, session.artist, session.album, session.subtitle)
             .joinToString(" ")
             .lowercase(Locale.ROOT)
@@ -852,6 +858,50 @@ internal class SpotifySoundCloudMusicProvider(
         if ("soundcloud" in source) return true
         val browserSession = BROWSER_MARKERS.any { marker -> marker in source }
         return browserSession && "soundcloud" in metadata
+    }
+
+    private fun isYandexMusicSession(session: SessionSnapshot): Boolean {
+        val source = sourceMetadata(session)
+        val metadata = metadataText(session)
+
+        if ("yandexmusic" in source || "yandex.music" in source) return true
+        if ("yandex" in source && ("music" in source || "music" in metadata || "музыка" in metadata)) return true
+
+        val browserSession = BROWSER_MARKERS.any { marker -> marker in source }
+        return browserSession && (
+            "music.yandex" in metadata ||
+                "yandex music" in metadata ||
+                "яндекс музыка" in metadata
+            )
+    }
+
+    private fun isVkMusicSession(session: SessionSnapshot): Boolean {
+        val source = sourceMetadata(session)
+        val metadata = metadataText(session)
+
+        if ("vkmusic" in source || "vk music" in source || "vk музыка" in source) return true
+        if ("vkontakte" in source || "вконтакте" in source) return true
+        if ("vk" in source && ("music" in source || "музыка" in source)) return true
+
+        val browserSession = BROWSER_MARKERS.any { marker -> marker in source }
+        return browserSession && (
+            "vk music" in metadata ||
+                "vk музыка" in metadata ||
+                "vkontakte" in metadata ||
+                "вконтакте" in metadata
+            )
+    }
+
+    private fun sourceMetadata(session: SessionSnapshot): String {
+        return listOf(session.source, session.sourceAppId)
+            .joinToString(" ")
+            .lowercase(Locale.ROOT)
+    }
+
+    private fun metadataText(session: SessionSnapshot): String {
+        return listOf(session.title, session.artist, session.album, session.subtitle)
+            .joinToString(" ")
+            .lowercase(Locale.ROOT)
     }
 
     private fun logDebugEvaluations(
