@@ -8,7 +8,19 @@ import net.minecraft.client.Minecraft
 
 object ArmorHudModule {
 
+    enum class LayoutType(val id: String, val label: String) {
+        VERTICAL("vertical", "Vertical"),
+        RIGHT_90("right_90", "Right 90");
+
+        companion object {
+            fun fromId(raw: String): LayoutType {
+                return entries.firstOrNull { it.id.equals(raw, ignoreCase = true) } ?: VERTICAL
+            }
+        }
+    }
+
     private const val moduleId = "armor_hud"
+    const val layoutTypeKey = "${moduleId}:layout_type"
     private val renderer = ArmorHudRenderer()
 
     fun initialize() {
@@ -16,6 +28,7 @@ object ArmorHudModule {
         ModuleStateStore.ensureSetting("${moduleId}:accent_sync", defaultValue = true)
         ModuleStateStore.ensureSetting("${moduleId}:slot_background", defaultValue = true)
         ModuleStateStore.ensureNumberSetting("${moduleId}:size", 1.0f)
+        ModuleStateStore.ensureTextSetting(layoutTypeKey, LayoutType.VERTICAL.id)
 
         HudRenderCallback.EVENT.register(HudRenderCallback { context, _ ->
             if (!ModuleStateStore.isEnabled(moduleId)) return@HudRenderCallback
@@ -51,5 +64,9 @@ object ArmorHudModule {
                 }
             )
         })
+    }
+
+    fun layoutType(): LayoutType {
+        return LayoutType.fromId(ModuleStateStore.getTextSetting(layoutTypeKey, LayoutType.VERTICAL.id))
     }
 }

@@ -2,9 +2,13 @@ package com.visualproject.client
 
 import com.mojang.blaze3d.platform.InputConstants
 import com.visualproject.client.hud.armor.ArmorHudModule
+import com.visualproject.client.hud.btc.BtcHudModule
 import com.visualproject.client.hud.cooldowns.CooldownsHudModule
 import com.visualproject.client.hud.gif.GifHudModule
+import com.visualproject.client.hud.inv.InvHudModule
 import com.visualproject.client.hud.itembar.ItemBarHudModule
+import com.visualproject.client.hud.music.MusicHudModule
+import com.visualproject.client.hud.shared.SharedMusicHudRuntime
 import com.visualproject.client.hud.potions.PotionHudModule
 import com.visualproject.client.hud.test.TestSdfHud
 import com.visualproject.client.hud.target.TargetHudModule
@@ -37,6 +41,7 @@ object VisualClientMod : ClientModInitializer {
         ModuleStateStore.ensureModule(sdfTestModuleId, defaultEnabled = false)
         ModuleStateStore.ensureNumberSetting("${sdfTestModuleId}:size", 1.0f)
         SdfShaderRegistry.registerEvent()
+        SharedMusicHudRuntime.initialize()
 
         openVisualsMenuKey = KeyBindingHelper.registerKeyBinding(
             KeyMapping(
@@ -67,9 +72,12 @@ object VisualClientMod : ClientModInitializer {
 
         WatermarkHudModule.initialize()
         ArmorHudModule.initialize()
+        BtcHudModule.initialize()
         CooldownsHudModule.initialize()
         GifHudModule.initialize()
+        InvHudModule.initialize()
         ItemBarHudModule.initialize()
+        MusicHudModule.initialize()
         NotificationsModule.initialize()
         PotionHudModule.initialize()
         TargetHudModule.initialize()

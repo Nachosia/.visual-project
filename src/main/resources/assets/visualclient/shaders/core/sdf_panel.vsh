@@ -23,6 +23,7 @@ layout(std140) uniform PanelStyle {
     vec4 ShadeTopColor;
     vec4 ShadeBottomColor;
     vec4 ClipRect;
+    vec4 BackdropParams;
 };
 
 in vec3 Position;

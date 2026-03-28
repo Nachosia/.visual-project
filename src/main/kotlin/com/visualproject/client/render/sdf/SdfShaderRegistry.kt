@@ -108,6 +108,7 @@ object SdfShaderRegistry {
             .withLocation(pipelineId)
             .withVertexShader(shaderId)
             .withFragmentShader(shaderId)
+            .withSampler("BackdropTexture")
             .withUniform("PanelStyle", UniformType.UNIFORM_BUFFER)
             .withBlend(BlendFunction.TRANSLUCENT)
             .withDepthTestFunction(DepthTestFunction.NO_DEPTH_TEST)

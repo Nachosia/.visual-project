@@ -8,7 +8,22 @@ import net.minecraft.client.Minecraft
 
 object WatermarkHudModule {
 
-    private const val watermarkModuleId = "watermark"
+    enum class WatermarkType(val id: String, val label: String) {
+        CLASSIC("classic", "Classic"),
+        HYPMOSIA_INFO("hypmosia_info", "Hypnosia");
+
+        companion object {
+            fun fromId(raw: String): WatermarkType {
+                val value = raw.trim()
+                return entries.firstOrNull { it.id.equals(value, ignoreCase = true) } ?:
+                    if (value.equals("hypnosia_info", ignoreCase = true)) HYPMOSIA_INFO else CLASSIC
+            }
+        }
+    }
+
+    const val watermarkModuleId = "watermark"
+    const val typeKey = "${watermarkModuleId}:type"
+    const val customLabelKey = "${watermarkModuleId}:custom_label"
 
     private val renderer = WatermarkHudRenderer()
 
@@ -16,6 +31,8 @@ object WatermarkHudModule {
         ModuleStateStore.ensureModule(watermarkModuleId, defaultEnabled = false)
         ModuleStateStore.ensureSetting("${watermarkModuleId}:accent_sync", defaultValue = true)
         ModuleStateStore.ensureSetting("${watermarkModuleId}:music_scan", defaultValue = true)
+        ModuleStateStore.ensureTextSetting(typeKey, WatermarkType.CLASSIC.id)
+        ModuleStateStore.ensureTextSetting(customLabelKey, "Developer")
         ModuleStateStore.ensureNumberSetting("${watermarkModuleId}:size", 1.0f)
 
         HudRenderCallback.EVENT.register(HudRenderCallback { context, deltaTracker ->
@@ -36,6 +53,39 @@ object WatermarkHudModule {
                     renderer.onScreenMouseClick(client, activeScreen, mouseEvent, consumed)
                 }
             )
+            ScreenMouseEvents.afterMouseDrag(screen).register(
+                ScreenMouseEvents.AfterMouseDrag { activeScreen, mouseEvent, horizontalAmount, verticalAmount, consumed ->
+                    if (!ModuleStateStore.isEnabled(watermarkModuleId)) {
+                        return@AfterMouseDrag consumed
+                    }
+
+                    renderer.onScreenMouseDrag(
+                        client = client,
+                        screen = activeScreen,
+                        mouseEvent = mouseEvent,
+                        horizontalAmount = horizontalAmount,
+                        verticalAmount = verticalAmount,
+                        consumed = consumed,
+                    )
+                }
+            )
+            ScreenMouseEvents.afterMouseRelease(screen).register(
+                ScreenMouseEvents.AfterMouseRelease { activeScreen, mouseEvent, consumed ->
+                    if (!ModuleStateStore.isEnabled(watermarkModuleId)) {
+                        return@AfterMouseRelease consumed
+                    }
+
+                    renderer.onScreenMouseRelease(activeScreen, mouseEvent, consumed)
+                }
+            )
         })
+    }
+
+    fun watermarkType(): WatermarkType {
+        return WatermarkType.fromId(ModuleStateStore.getTextSetting(typeKey, WatermarkType.CLASSIC.id))
+    }
+
+    fun customLabel(): String {
+        return ModuleStateStore.getTextSetting(customLabelKey, "Developer").trim().ifBlank { "Developer" }
     }
 }

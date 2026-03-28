@@ -3,12 +3,10 @@
   "package": "com.visualproject.client.mixin",
   "compatibilityLevel": "JAVA_21",
   "mixins": [
+    "ClientPacketListenerMixin",
     "ContextualBarRendererMixin",
-    "ExperienceBarSpriteAccessor",
     "GameRendererMixin",
     "GuiHotbarMixin",
-    "GuiSpriteAccessor",
-    "PlayerTabOverlaySpriteAccessor",
     "PlayerAttackSoundMixin"
   ],
   "injectors": {

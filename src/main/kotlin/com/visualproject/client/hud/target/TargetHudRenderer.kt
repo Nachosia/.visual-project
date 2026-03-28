@@ -2,6 +2,7 @@ package com.visualproject.client.hud.target
 
 import com.visualproject.client.ModuleStateStore
 import com.visualproject.client.VisualThemeSettings
+import com.visualproject.client.render.sdf.BackdropBlurRenderer
 import com.visualproject.client.render.sdf.SdfGlowStyle
 import com.visualproject.client.render.sdf.SdfNeonBorderStyle
 import com.visualproject.client.render.sdf.SdfPanelRenderer
@@ -37,7 +38,11 @@ internal class TargetHudRenderer {
             get() = VisualThemeSettings.textSecondary()
 
         val nameText: Int
-            get() = if (VisualThemeSettings.isLightPreset()) 0xFF111111.toInt() else textSecondary
+            get() = when {
+                VisualThemeSettings.isTransparentPreset() -> textPrimary
+                VisualThemeSettings.isLightPreset() -> 0xFF111111.toInt()
+                else -> textSecondary
+            }
 
         fun shell(): SdfPanelStyle = SdfPanelStyle(
             baseColor = VisualThemeSettings.hudShellFill(),
@@ -96,15 +101,21 @@ internal class TargetHudRenderer {
         }
 
         fun slot(filled: Boolean): SdfPanelStyle = SdfPanelStyle(
-            baseColor = if (filled) {
-                if (VisualThemeSettings.isLightPreset()) blendColor(0xFFF0F5FC.toInt(), VisualThemeSettings.sliderFill(), 0.42f) else 0xC6141C2E.toInt()
-            } else {
-                if (VisualThemeSettings.isLightPreset()) 0xD7E4EEF8.toInt() else 0x9E111827.toInt()
+            baseColor = when {
+                VisualThemeSettings.isTransparentPreset() && filled -> VisualThemeSettings.hudIconFill()
+                VisualThemeSettings.isTransparentPreset() -> VisualThemeSettings.hudTrackFill()
+                filled && VisualThemeSettings.isLightPreset() -> blendColor(0xFFF0F5FC.toInt(), VisualThemeSettings.sliderFill(), 0.42f)
+                filled -> 0xC6141C2E.toInt()
+                VisualThemeSettings.isLightPreset() -> 0xD7E4EEF8.toInt()
+                else -> 0x9E111827.toInt()
             },
-            borderColor = if (filled) {
-                if (VisualThemeSettings.isLightPreset()) blendColor(0xFFCAD7E8.toInt(), VisualThemeSettings.neonBorder(), 0.18f) else 0x7A50638D
-            } else {
-                if (VisualThemeSettings.isLightPreset()) 0x8DBFD1E4.toInt() else 0x5632405D
+            borderColor = when {
+                VisualThemeSettings.isTransparentPreset() && filled -> blendColor(VisualThemeSettings.hudIconBorder(), VisualThemeSettings.accentStrong(), 0.18f)
+                VisualThemeSettings.isTransparentPreset() -> VisualThemeSettings.hudTrackBorder()
+                filled && VisualThemeSettings.isLightPreset() -> blendColor(0xFFCAD7E8.toInt(), VisualThemeSettings.neonBorder(), 0.18f)
+                filled -> 0x7A50638D
+                VisualThemeSettings.isLightPreset() -> 0x8DBFD1E4.toInt()
+                else -> 0x5632405D
             },
             borderWidthPx = 1.0f,
             radiusPx = 7f,
@@ -120,7 +131,10 @@ internal class TargetHudRenderer {
                 strength = if (filled) 0.10f else if (VisualThemeSettings.isLightPreset()) 0.05f else 0.08f,
                 opacity = if (filled) 0.06f else if (VisualThemeSettings.isLightPreset()) 0.05f else 0.08f,
             ),
-            shade = SdfShadeStyle(0x08FFFFFF, if (VisualThemeSettings.isLightPreset()) 0x08D0DBEA else 0x10000000),
+            shade = SdfShadeStyle(
+                if (VisualThemeSettings.isTransparentPreset()) 0x04FFFFFF else 0x08FFFFFF,
+                if (VisualThemeSettings.isTransparentPreset()) 0x0C000000 else if (VisualThemeSettings.isLightPreset()) 0x08D0DBEA else 0x10000000,
+            ),
             neonBorder = SdfNeonBorderStyle(
                 color = if (filled) {
                     VisualThemeSettings.withAlpha(VisualThemeSettings.neonBorder(), if (VisualThemeSettings.isLightPreset()) 0x44 else 0x70)
@@ -149,21 +163,30 @@ internal class TargetHudRenderer {
         )
 
         fun sliderTrack(active: Boolean): SdfPanelStyle = SdfPanelStyle(
-            baseColor = if (active) {
-                if (VisualThemeSettings.isLightPreset()) 0xD9E5EEF8.toInt() else 0xCF172133.toInt()
-            } else {
-                if (VisualThemeSettings.isLightPreset()) VisualThemeSettings.hudTrackFill() else 0xB71A2335.toInt()
+            baseColor = when {
+                VisualThemeSettings.isTransparentPreset() && active -> blendColor(VisualThemeSettings.hudTrackFill(), VisualThemeSettings.sliderFill(), 0.16f)
+                VisualThemeSettings.isTransparentPreset() -> VisualThemeSettings.hudTrackFill()
+                active && VisualThemeSettings.isLightPreset() -> 0xD9E5EEF8.toInt()
+                active -> 0xCF172133.toInt()
+                VisualThemeSettings.isLightPreset() -> VisualThemeSettings.hudTrackFill()
+                else -> 0xB71A2335.toInt()
             },
-            borderColor = if (active) {
-                if (VisualThemeSettings.isLightPreset()) blendColor(0xFFC4D2E5.toInt(), VisualThemeSettings.accentStrong(), 0.18f) else blendColor(0xA752638B.toInt(), VisualThemeSettings.accentStrong(), 0.35f)
-            } else {
-                if (VisualThemeSettings.isLightPreset()) VisualThemeSettings.hudTrackBorder() else 0x863B4B67.toInt()
+            borderColor = when {
+                VisualThemeSettings.isTransparentPreset() && active -> blendColor(VisualThemeSettings.hudTrackBorder(), VisualThemeSettings.accentStrong(), 0.20f)
+                VisualThemeSettings.isTransparentPreset() -> VisualThemeSettings.hudTrackBorder()
+                active && VisualThemeSettings.isLightPreset() -> blendColor(0xFFC4D2E5.toInt(), VisualThemeSettings.accentStrong(), 0.18f)
+                active -> blendColor(0xA752638B.toInt(), VisualThemeSettings.accentStrong(), 0.35f)
+                VisualThemeSettings.isLightPreset() -> VisualThemeSettings.hudTrackBorder()
+                else -> 0x863B4B67.toInt()
             },
             borderWidthPx = 1.0f,
             radiusPx = 3f,
             innerGlow = SdfGlowStyle(0xFFFFFFFF.toInt(), radiusPx = 5f, strength = 0.02f, opacity = 0.02f),
             outerGlow = SdfGlowStyle(VisualThemeSettings.themedAccentGlowBase(), radiusPx = 8f, strength = if (active) if (VisualThemeSettings.isLightPreset()) 0.08f else 0.12f else if (VisualThemeSettings.isLightPreset()) 0.05f else 0.08f, opacity = if (active) if (VisualThemeSettings.isLightPreset()) 0.05f else 0.08f else if (VisualThemeSettings.isLightPreset()) 0.03f else 0.04f),
-            shade = SdfShadeStyle(0x08FFFFFF, if (VisualThemeSettings.isLightPreset()) 0x08D0DBEA else 0x0E000000),
+            shade = SdfShadeStyle(
+                if (VisualThemeSettings.isTransparentPreset()) 0x04FFFFFF else 0x08FFFFFF,
+                if (VisualThemeSettings.isTransparentPreset()) 0x0C000000 else if (VisualThemeSettings.isLightPreset()) 0x08D0DBEA else 0x0E000000,
+            ),
             neonBorder = SdfNeonBorderStyle(
                 if (active) VisualThemeSettings.withAlpha(VisualThemeSettings.neonBorder(), if (VisualThemeSettings.isLightPreset()) 0x40 else 0x74) else VisualThemeSettings.withAlpha(VisualThemeSettings.neonBorder(), if (VisualThemeSettings.isLightPreset()) 0x20 else 0x34),
                 widthPx = 0.8f,
@@ -219,6 +242,8 @@ internal class TargetHudRenderer {
     private var pitchSlider = 0.46f
     private var zoomSlider = 0.0f
     private var lastScale = -1f
+    private var lastTrackedTarget: Player? = null
+    private var lastTrackedAtMs = 0L
 
     fun render(
         context: GuiGraphics,
@@ -228,9 +253,10 @@ internal class TargetHudRenderer {
         if (client.player == null || client.options.hideGui) return
         val scale = hudScale()
 
+        val nowMs = System.currentTimeMillis()
         val target = TargetHudTargeting.currentTarget(client)
         val chatOpen = client.screen is ChatScreen
-        val displayPlayer = target ?: if (chatOpen) client.player else null
+        val displayPlayer = resolveDisplayPlayer(client, target, chatOpen, nowMs)
 
         if (displayPlayer == null) {
             if (dragState.endDrag()) {
@@ -242,6 +268,7 @@ internal class TargetHudRenderer {
 
         adjustPositionForScaleChange(client, scale)
         clampToScreen(client, scale)
+        BackdropBlurRenderer.captureBackdrop()
 
         val actualBounds = TargetHudBounds(
             x = dragState.position.x,
@@ -813,6 +840,43 @@ internal class TargetHudRenderer {
             }
             null -> Unit
         }
+    }
+
+    private fun resolveDisplayPlayer(
+        client: Minecraft,
+        currentTarget: Player?,
+        chatOpen: Boolean,
+        nowMs: Long,
+    ): Player? {
+        if (currentTarget != null) {
+            lastTrackedTarget = currentTarget
+            lastTrackedAtMs = nowMs
+            return currentTarget
+        }
+
+        val lifetimeMs = (targetLifetimeSeconds() * 1000f).roundToInt().toLong().coerceAtLeast(0L)
+        val cachedTarget = lastTrackedTarget
+        val withinLifetime = lifetimeMs > 0L && cachedTarget != null && nowMs - lastTrackedAtMs <= lifetimeMs
+        if (withinLifetime && isCachedTargetUsable(client, cachedTarget)) {
+            return cachedTarget
+        }
+
+        if (cachedTarget != null && (!isCachedTargetUsable(client, cachedTarget) || nowMs - lastTrackedAtMs > lifetimeMs)) {
+            lastTrackedTarget = null
+        }
+
+        return if (chatOpen) client.player else null
+    }
+
+    private fun isCachedTargetUsable(client: Minecraft, target: Player): Boolean {
+        val localPlayer = client.player ?: return false
+        if (!target.isAlive) return false
+        if (target == localPlayer) return false
+        return target.level() == localPlayer.level()
+    }
+
+    private fun targetLifetimeSeconds(): Float {
+        return ModuleStateStore.getNumberSetting(TargetHudModule.lifetimeSecondsKey, 0.0f).coerceIn(0f, 5f)
     }
 
     private fun hudScale(): Float {

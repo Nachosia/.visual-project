@@ -5,7 +5,7 @@ import java.nio.ByteOrder
 
 object SdfUniformWriter {
     private const val VEC4_BYTES = 16
-    const val PANEL_STYLE_BYTES = VEC4_BYTES * 13
+    const val PANEL_STYLE_BYTES = VEC4_BYTES * 14
 
     fun createPanelStyleBuffer(
         x: Float,
@@ -34,6 +34,12 @@ object SdfUniformWriter {
                 putVec4(SdfColor.argb(style.shade.topColor))
                 putVec4(SdfColor.argb(style.shade.bottomColor))
                 putVec4(clipX, clipY, clipWidth, clipHeight)
+                putVec4(
+                    style.backdrop.blurRadiusPx,
+                    style.backdrop.tintMix,
+                    style.backdrop.opacity,
+                    if (style.backdrop.enabled()) 1f else 0f,
+                )
                 flip()
             }
     }

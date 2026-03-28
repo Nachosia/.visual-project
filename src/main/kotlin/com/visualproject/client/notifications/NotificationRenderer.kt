@@ -1,6 +1,7 @@
 package com.visualproject.client.notifications
 
 import com.visualproject.client.VisualThemeSettings
+import com.visualproject.client.render.sdf.BackdropBlurRenderer
 import com.visualproject.client.render.sdf.SdfGlowStyle
 import com.visualproject.client.render.sdf.SdfNeonBorderStyle
 import com.visualproject.client.render.sdf.SdfPanelRenderer
@@ -39,6 +40,7 @@ internal class NotificationRenderer {
         val screenWidth = client.window.guiScaledWidth
         var currentY = Layout.marginTop
         val now = System.currentTimeMillis()
+        BackdropBlurRenderer.captureBackdrop()
 
         toasts.forEach { toast ->
             val alpha = toastAlpha(toast, now)

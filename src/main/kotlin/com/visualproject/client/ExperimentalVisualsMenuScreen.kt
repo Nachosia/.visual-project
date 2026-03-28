@@ -2,8 +2,15 @@ package com.visualproject.client
 
 import com.mojang.blaze3d.platform.NativeImage
 import com.visualproject.client.audio.CustomSoundRegistry
+import com.visualproject.client.hud.armor.ArmorHudModule
+import com.visualproject.client.hud.btc.BtcHudModule
+import com.visualproject.client.hud.inv.InvHudModule
 import com.visualproject.client.hud.itembar.ItemBarHudModule
+import com.visualproject.client.hud.music.MusicHudModule
+import com.visualproject.client.hud.target.TargetHudModule
+import com.visualproject.client.hud.watermark.WatermarkHudModule
 import com.visualproject.client.notifications.NotificationsSettings
+import com.visualproject.client.render.sdf.BackdropBlurRenderer
 import com.visualproject.client.render.sdf.SdfGlowStyle
 import com.visualproject.client.render.sdf.SdfNeonBorderStyle
 import com.visualproject.client.render.sdf.SdfPanelRenderer
@@ -177,10 +184,13 @@ class ExperimentalVisualsMenuScreen : Screen(Component.empty()) {
         VisualMenuModuleEntry("world_particles", "World Particles", "O", VisualMenuTab.VISUALS),
 
         VisualMenuModuleEntry("armor_hud", "Armor HUD", "A", VisualMenuTab.HUD),
+        VisualMenuModuleEntry(BtcHudModule.moduleId, "BTC", "B", VisualMenuTab.HUD),
         VisualMenuModuleEntry("cooldowns_hud", "Cooldowns HUD", "C", VisualMenuTab.HUD),
         VisualMenuModuleEntry("effect_notify", "Notifications", "E", VisualMenuTab.HUD),
         VisualMenuModuleEntry("gif_hud", "GIF", "G", VisualMenuTab.HUD),
+        VisualMenuModuleEntry(InvHudModule.moduleId, "INV", "I", VisualMenuTab.HUD),
         VisualMenuModuleEntry("item_bar_hud", "Item Bar", "I", VisualMenuTab.HUD),
+        VisualMenuModuleEntry(MusicHudModule.moduleId, "Music", "M", VisualMenuTab.HUD),
         VisualMenuModuleEntry("potions", "Potions", "P", VisualMenuTab.HUD),
         VisualMenuModuleEntry(VisualClientMod.sdfTestModuleId, "SDF Test HUD", "Q", VisualMenuTab.HUD),
         VisualMenuModuleEntry("target_hud", "Target HUD", "T", VisualMenuTab.HUD),
@@ -232,7 +242,7 @@ class ExperimentalVisualsMenuScreen : Screen(Component.empty()) {
             if (module.id == "armor_hud") {
                 ModuleStateStore.ensureSetting("${module.id}:slot_background", defaultValue = true)
             }
-            if (module.id == "watermark") {
+            if (module.id == "watermark" || module.id == MusicHudModule.moduleId) {
                 ModuleStateStore.ensureSetting("${module.id}:music_scan", defaultValue = true)
             }
             if (module.id == "item_bar_hud") {
@@ -269,6 +279,10 @@ class ExperimentalVisualsMenuScreen : Screen(Component.empty()) {
         val filtered = filteredModules()
         clampScroll(layout, filtered)
         syncWidgetLayout(layout)
+        BackdropBlurRenderer.captureBackdrop()
+        if (isTransparentMenuTheme()) {
+            context.fill(0, 0, width, height, 0x2A090B10)
+        }
 
         SdfPanelRenderer.draw(context, layout.panel.x, layout.panel.y, layout.panel.width, layout.panel.height, shellStyle())
         SdfPanelRenderer.draw(context, layout.sidebar.x, layout.sidebar.y, layout.sidebar.width, layout.sidebar.height, sidebarStyle())
@@ -734,31 +748,8 @@ class ExperimentalVisualsMenuScreen : Screen(Component.empty()) {
                         row.options.forEach { option ->
                             val hovered = option.rect.contains(mouseX, mouseY)
                             val selected = selectedValue == option.value
-                            val fill = when {
-                                selected -> if (isLightMenuTheme()) {
-                                    blendColor(0xFFF2F7FF.toInt(), sliderFillColor(), 0.38f)
-                                } else {
-                                    blendColor(0xFF19243A.toInt(), sliderFillColor(), 0.78f)
-                                }
-
-                                hovered -> if (isLightMenuTheme()) 0xEAF2F7FF.toInt() else 0xD1141D30.toInt()
-                                else -> if (isLightMenuTheme()) 0xDDF7FAFE.toInt() else 0xC910182A.toInt()
-                            }
-                            val border = when {
-                                selected -> if (isLightMenuTheme()) {
-                                    blendColor(0xFFB9CAE3.toInt(), sliderFillColor(), 0.34f)
-                                } else {
-                                    blendColor(accentStrongColor(), neonBorderColor(), 0.35f)
-                                }
-
-                                hovered -> if (isLightMenuTheme()) {
-                                    blendColor(0xFFCBD7E8.toInt(), accentStrongColor(), 0.10f)
-                                } else {
-                                    blendColor(0xFF425270.toInt(), accentStrongColor(), 0.18f)
-                                }
-
-                                else -> if (isLightMenuTheme()) 0x88C6D1E3.toInt() else 0x6A33415E
-                            }
+                            val fill = choiceChipFill(selected, hovered)
+                            val border = choiceChipBorder(selected, hovered)
                             drawRoundedPanel(context, option.rect.x, option.rect.y, option.rect.width, option.rect.height, fill, border, 9)
                             val text = vText(option.label)
                             val textWidth = font.width(text)
@@ -857,31 +848,8 @@ class ExperimentalVisualsMenuScreen : Screen(Component.empty()) {
                     row.options.forEach { option ->
                         val hovered = option.rect.contains(mouseX, mouseY)
                         val selected = selectedValue == option.value
-                        val fill = when {
-                            selected -> if (isLightMenuTheme()) {
-                                blendColor(0xFFF2F7FF.toInt(), sliderFillColor(), 0.38f)
-                            } else {
-                                blendColor(0xFF19243A.toInt(), sliderFillColor(), 0.78f)
-                            }
-
-                            hovered -> if (isLightMenuTheme()) 0xEAF2F7FF.toInt() else 0xD1141D30.toInt()
-                            else -> if (isLightMenuTheme()) 0xDDF7FAFE.toInt() else 0xC910182A.toInt()
-                        }
-                        val border = when {
-                            selected -> if (isLightMenuTheme()) {
-                                blendColor(0xFFB9CAE3.toInt(), sliderFillColor(), 0.34f)
-                            } else {
-                                blendColor(accentStrongColor(), neonBorderColor(), 0.35f)
-                            }
-
-                            hovered -> if (isLightMenuTheme()) {
-                                blendColor(0xFFCBD7E8.toInt(), accentStrongColor(), 0.10f)
-                            } else {
-                                blendColor(0xFF425270.toInt(), accentStrongColor(), 0.18f)
-                            }
-
-                            else -> if (isLightMenuTheme()) 0x88C6D1E3.toInt() else 0x6A33415E
-                        }
+                        val fill = choiceChipFill(selected, hovered)
+                        val border = choiceChipBorder(selected, hovered)
                         drawRoundedPanel(context, option.rect.x, option.rect.y, option.rect.width, option.rect.height, fill, border, 9)
                         val text = vText(option.label)
                         val textWidth = font.width(text)
@@ -1018,8 +986,16 @@ class ExperimentalVisualsMenuScreen : Screen(Component.empty()) {
             width,
             height,
             SdfPanelStyle(
-                baseColor = if (isLightMenuTheme()) 0xE8EEF4FC.toInt() else 0xB71A2335.toInt(),
-                borderColor = if (isLightMenuTheme()) {
+                baseColor = if (isTransparentMenuTheme()) {
+                    0x66202936
+                } else if (isLightMenuTheme()) {
+                    0xE8EEF4FC.toInt()
+                } else {
+                    0xB71A2335.toInt()
+                },
+                borderColor = if (isTransparentMenuTheme()) {
+                    blendColor(0xFF677283.toInt(), sliderFillColor(), 0.14f)
+                } else if (isLightMenuTheme()) {
                     blendColor(0xFFBCC9DC.toInt(), sliderFillColor(), 0.16f)
                 } else {
                     blendColor(0xFF3B4B67.toInt(), accentStrongColor(), 0.25f)
@@ -1028,7 +1004,7 @@ class ExperimentalVisualsMenuScreen : Screen(Component.empty()) {
                 radiusPx = (height / 2f),
                 innerGlow = SdfGlowStyle(0xFFFFFFFF.toInt(), radiusPx = 5f, strength = 0.02f, opacity = 0.02f),
                 outerGlow = menuGlow(accentStrongColor(), radiusPx = 8f, strength = if (isLightMenuTheme()) 0.05f else 0.08f, opacity = if (isLightMenuTheme()) 0.03f else 0.04f),
-                shade = if (isLightMenuTheme()) SdfShadeStyle(0x08FFFFFF, 0x0AD5DFED) else SdfShadeStyle(0x08FFFFFF, 0x0E000000),
+                shade = if (isTransparentMenuTheme()) SdfShadeStyle(0x04FFFFFF, 0x0E000000) else if (isLightMenuTheme()) SdfShadeStyle(0x08FFFFFF, 0x0AD5DFED) else SdfShadeStyle(0x08FFFFFF, 0x0E000000),
                 neonBorder = menuNeonBorder(
                     VisualThemeSettings.withAlpha(neonBorderColor(), if (isLightMenuTheme()) 0x3A else 0x54),
                     widthPx = 0.8f,
@@ -1047,8 +1023,16 @@ class ExperimentalVisualsMenuScreen : Screen(Component.empty()) {
             filledWidth,
             (height - 2).coerceAtLeast(1),
             SdfPanelStyle(
-                baseColor = if (isLightMenuTheme()) blendColor(0xFFF7FBFF.toInt(), sliderFillColor(), 0.72f) else sliderFillColor(),
-                borderColor = if (isLightMenuTheme()) {
+                baseColor = if (isTransparentMenuTheme()) {
+                    blendColor(0x7A1F2836, sliderFillColor(), 0.76f)
+                } else if (isLightMenuTheme()) {
+                    blendColor(0xFFF7FBFF.toInt(), sliderFillColor(), 0.72f)
+                } else {
+                    sliderFillColor()
+                },
+                borderColor = if (isTransparentMenuTheme()) {
+                    blendColor(0xFF697383.toInt(), sliderFillColor(), 0.26f)
+                } else if (isLightMenuTheme()) {
                     blendColor(0xFFDCE7F6.toInt(), sliderFillColor(), 0.44f)
                 } else {
                     blendColor(sliderFillColor(), 0xFFFFFFFF.toInt(), 0.18f)
@@ -1057,7 +1041,7 @@ class ExperimentalVisualsMenuScreen : Screen(Component.empty()) {
                 radiusPx = ((height - 2) / 2f),
                 innerGlow = SdfGlowStyle(0xFFFFFFFF.toInt(), radiusPx = 5f, strength = 0.05f, opacity = 0.04f),
                 outerGlow = menuGlow(sliderFillColor(), radiusPx = 8f, strength = if (isLightMenuTheme()) 0.10f else 0.14f, opacity = if (isLightMenuTheme()) 0.06f else 0.08f),
-                shade = if (isLightMenuTheme()) SdfShadeStyle(0x08FFFFFF, 0x08D0DBEA) else SdfShadeStyle(0x10FFFFFF, 0x0A000000),
+                shade = if (isTransparentMenuTheme()) SdfShadeStyle(0x04FFFFFF, 0x0A000000) else if (isLightMenuTheme()) SdfShadeStyle(0x08FFFFFF, 0x08D0DBEA) else SdfShadeStyle(0x10FFFFFF, 0x0A000000),
                 neonBorder = menuNeonBorder(
                     VisualThemeSettings.withAlpha(neonBorderColor(), if (isLightMenuTheme()) 0x78 else 0xD5),
                     widthPx = 0.9f,
@@ -1078,8 +1062,16 @@ class ExperimentalVisualsMenuScreen : Screen(Component.empty()) {
             knobSize,
             knobSize,
             SdfPanelStyle(
-                baseColor = if (isLightMenuTheme()) blendColor(0xFFFFFFFF.toInt(), sliderKnobColor(), 0.56f) else sliderKnobColor(),
-                borderColor = if (isLightMenuTheme()) {
+                baseColor = if (isTransparentMenuTheme()) {
+                    blendColor(0xFFF7FAFF.toInt(), sliderKnobColor(), 0.50f)
+                } else if (isLightMenuTheme()) {
+                    blendColor(0xFFFFFFFF.toInt(), sliderKnobColor(), 0.56f)
+                } else {
+                    sliderKnobColor()
+                },
+                borderColor = if (isTransparentMenuTheme()) {
+                    blendColor(0xFF697383.toInt(), sliderFillColor(), 0.20f)
+                } else if (isLightMenuTheme()) {
                     blendColor(0xFFCDD9EC.toInt(), sliderFillColor(), 0.24f)
                 } else {
                     blendColor(sliderKnobColor(), accentStrongColor(), 0.32f)
@@ -1088,7 +1080,7 @@ class ExperimentalVisualsMenuScreen : Screen(Component.empty()) {
                 radiusPx = 6f,
                 innerGlow = SdfGlowStyle(0xFFFFFFFF.toInt(), radiusPx = 6f, strength = 0.06f, opacity = 0.06f),
                 outerGlow = menuGlow(accentStrongColor(), radiusPx = 8f, strength = if (isLightMenuTheme()) 0.10f else 0.16f, opacity = if (isLightMenuTheme()) 0.08f else 0.12f),
-                shade = if (isLightMenuTheme()) SdfShadeStyle(0x08FFFFFF, 0x06CDD8E8) else SdfShadeStyle(0x0EFFFFFF, 0x08000000),
+                shade = if (isTransparentMenuTheme()) SdfShadeStyle(0x04FFFFFF, 0x08000000) else if (isLightMenuTheme()) SdfShadeStyle(0x08FFFFFF, 0x06CDD8E8) else SdfShadeStyle(0x0EFFFFFF, 0x08000000),
                 neonBorder = menuNeonBorder(
                     VisualThemeSettings.withAlpha(neonBorderColor(), if (isLightMenuTheme()) 0x70 else 0xC8),
                     widthPx = 0.9f,
@@ -1192,6 +1184,7 @@ class ExperimentalVisualsMenuScreen : Screen(Component.empty()) {
                 "Theme",
                 VisualThemeSettings.MenuPreset.DARK.id to "Dark",
                 VisualThemeSettings.MenuPreset.LIGHT.id to "White",
+                VisualThemeSettings.MenuPreset.TRANSPARENT.id to "Transparent",
             )
             addChoice(
                 VisualThemeSettings.themeFontKey,
@@ -1277,15 +1270,51 @@ class ExperimentalVisualsMenuScreen : Screen(Component.empty()) {
         if (selectedModule.id != "gif_hud") {
             addToggle("${selectedModule.id}:accent_sync", "Accent Sync")
         }
-        if (selectedModule.id == "watermark") {
-            addToggle("${selectedModule.id}:music_scan", "Music Scan")
+        if (selectedModule.id == WatermarkHudModule.watermarkModuleId) {
+            addChoice(
+                WatermarkHudModule.typeKey,
+                "Type",
+                WatermarkHudModule.WatermarkType.CLASSIC.id to WatermarkHudModule.WatermarkType.CLASSIC.label,
+                WatermarkHudModule.WatermarkType.HYPMOSIA_INFO.id to WatermarkHudModule.WatermarkType.HYPMOSIA_INFO.label,
+            )
+            if (choiceValueFor(WatermarkHudModule.typeKey, WatermarkHudModule.WatermarkType.CLASSIC.id) ==
+                WatermarkHudModule.WatermarkType.CLASSIC.id
+            ) {
+                addToggle("${selectedModule.id}:music_scan", "Music Scan")
+            } else {
+                addInput(WatermarkHudModule.customLabelKey, "Custom Label", "Developer")
+            }
+        }
+        if (selectedModule.id == MusicHudModule.moduleId) {
+            addToggle(MusicHudModule.musicScanKey, "Music Scan")
         }
         if (selectedModule.id == "item_bar_hud") {
+            addChoice(
+                ItemBarHudModule.layoutTypeKey,
+                "Type",
+                ItemBarHudModule.LayoutType.PANEL.id to ItemBarHudModule.LayoutType.PANEL.label,
+                ItemBarHudModule.LayoutType.COMPACT.id to ItemBarHudModule.LayoutType.COMPACT.label,
+                ItemBarHudModule.LayoutType.VERTICAL.id to ItemBarHudModule.LayoutType.VERTICAL.label,
+            )
             addToggle(ItemBarHudModule.showPlayerStatusKey, "Show Player Status")
             addToggle("${selectedModule.id}:hide_vanilla_hotbar", "Hide Vanilla Hotbar")
         }
         if (selectedModule.id == "armor_hud") {
+            addChoice(
+                ArmorHudModule.layoutTypeKey,
+                "Type",
+                ArmorHudModule.LayoutType.VERTICAL.id to ArmorHudModule.LayoutType.VERTICAL.label,
+                ArmorHudModule.LayoutType.RIGHT_90.id to ArmorHudModule.LayoutType.RIGHT_90.label,
+            )
             addToggle("${selectedModule.id}:slot_background", "Slot Background")
+        }
+        if (selectedModule.id == "target_hud") {
+            addSlider(TargetHudModule.lifetimeSecondsKey, "Lifetime", 0f, 5f)
+        }
+        if (selectedModule.id == BtcHudModule.moduleId) {
+            addToggle(BtcHudModule.showBpsKey, "Show BPS")
+            addToggle(BtcHudModule.showTpsKey, "Show TPS")
+            addToggle(BtcHudModule.showCoordsKey, "Show Coords")
         }
         if (selectedModule.id == "gif_hud") {
             addInput("${selectedModule.id}:file_name", "Media File", "name.gif / .png / .jpg")
@@ -1435,6 +1464,7 @@ class ExperimentalVisualsMenuScreen : Screen(Component.empty()) {
             VisualThemeSettings.sliderKnobColorKey -> ModuleStateStore.getTextSetting(key, "#F0F2FF")
             "gif_hud:file_name" -> ModuleStateStore.getTextSetting(key, "")
             "gif_hud:chroma_key_color" -> ModuleStateStore.getTextSetting(key, "#00FF00")
+            WatermarkHudModule.customLabelKey -> ModuleStateStore.getTextSetting(key, "Developer")
             else -> ModuleStateStore.getTextSetting(key, "")
         }
     }
@@ -1580,11 +1610,29 @@ class ExperimentalVisualsMenuScreen : Screen(Component.empty()) {
         val angle = pickerHue * (kotlin.math.PI.toFloat() * 2f)
         val hueIndicatorX = (centerX + kotlin.math.cos(angle) * indicatorRadius).roundToInt()
         val hueIndicatorY = (centerY + kotlin.math.sin(angle) * indicatorRadius).roundToInt()
-        drawRoundedPanel(context, hueIndicatorX - 5, hueIndicatorY - 5, 10, 10, if (isLightMenuTheme()) 0xFFFFFFFF.toInt() else 0xFFF2F4FF.toInt(), accentStrongColor(), 5)
+        drawRoundedPanel(
+            context,
+            hueIndicatorX - 5,
+            hueIndicatorY - 5,
+            10,
+            10,
+            if (isTransparentMenuTheme()) 0xFFF6F8FF.toInt() else if (isLightMenuTheme()) 0xFFFFFFFF.toInt() else 0xFFF2F4FF.toInt(),
+            accentStrongColor(),
+            5,
+        )
 
         val squareIndicatorX = (picker.squareRect.x + (picker.squareRect.width * pickerSaturation)).roundToInt().coerceIn(picker.squareRect.x + 4, picker.squareRect.x + picker.squareRect.width - 4)
         val squareIndicatorY = (picker.squareRect.y + (picker.squareRect.height * (1f - pickerValue))).roundToInt().coerceIn(picker.squareRect.y + 4, picker.squareRect.y + picker.squareRect.height - 4)
-        drawRoundedPanel(context, squareIndicatorX - 4, squareIndicatorY - 4, 8, 8, if (isLightMenuTheme()) 0xFFFFFFFF.toInt() else 0xFFF2F4FF.toInt(), if (isLightMenuTheme()) 0xFF33415F.toInt() else 0xFF111827.toInt(), 4)
+        drawRoundedPanel(
+            context,
+            squareIndicatorX - 4,
+            squareIndicatorY - 4,
+            8,
+            8,
+            if (isTransparentMenuTheme()) 0xFFF6F8FF.toInt() else if (isLightMenuTheme()) 0xFFFFFFFF.toInt() else 0xFFF2F4FF.toInt(),
+            if (isTransparentMenuTheme()) 0xFF556171.toInt() else if (isLightMenuTheme()) 0xFF33415F.toInt() else 0xFF111827.toInt(),
+            4,
+        )
 
         val currentColor = currentThemeColorForKey(activeThemeColorKey ?: return)
         SdfPanelRenderer.draw(
@@ -1594,8 +1642,16 @@ class ExperimentalVisualsMenuScreen : Screen(Component.empty()) {
             picker.previewRect.width,
             picker.previewRect.height,
             SdfPanelStyle(
-                baseColor = if (isLightMenuTheme()) 0xFFF5F8FE.toInt() else 0xFF111A2D.toInt(),
-                borderColor = if (isLightMenuTheme()) {
+                baseColor = if (isTransparentMenuTheme()) {
+                    0x6C1E2633
+                } else if (isLightMenuTheme()) {
+                    0xFFF5F8FE.toInt()
+                } else {
+                    0xFF111A2D.toInt()
+                },
+                borderColor = if (isTransparentMenuTheme()) {
+                    blendColor(0xFF697383.toInt(), currentColor, 0.20f)
+                } else if (isLightMenuTheme()) {
                     blendColor(0xFFC8D3E6.toInt(), currentColor, 0.24f)
                 } else {
                     blendColor(0xFF33415F.toInt(), currentColor, 0.30f)
@@ -1604,7 +1660,7 @@ class ExperimentalVisualsMenuScreen : Screen(Component.empty()) {
                 radiusPx = 16f,
                 innerGlow = SdfGlowStyle(0xFFFFFFFF.toInt(), radiusPx = 8f, strength = 0.02f, opacity = 0.02f),
                 outerGlow = menuGlow(currentColor, radiusPx = 16f, strength = if (isLightMenuTheme()) 0.08f else 0.12f, opacity = if (isLightMenuTheme()) 0.06f else 0.08f),
-                shade = if (isLightMenuTheme()) SdfShadeStyle(0x08FFFFFF, 0x0CD2DDEC) else SdfShadeStyle(0x0EFFFFFF, 0x14000000),
+                shade = if (isTransparentMenuTheme()) SdfShadeStyle(0x04FFFFFF, 0x10000000) else if (isLightMenuTheme()) SdfShadeStyle(0x08FFFFFF, 0x0CD2DDEC) else SdfShadeStyle(0x0EFFFFFF, 0x14000000),
                 neonBorder = menuNeonBorder(
                     VisualThemeSettings.withAlpha(neonBorderColor(), if (isLightMenuTheme()) 0x54 else 0x84),
                     widthPx = 0.9f,
@@ -1738,6 +1794,7 @@ class ExperimentalVisualsMenuScreen : Screen(Component.empty()) {
     private fun choiceAffectsLayout(key: String): Boolean {
         return key == VisualThemeSettings.menuPresetKey ||
             key == VisualThemeSettings.themeFontKey ||
+            key == WatermarkHudModule.typeKey ||
             key == NotificationsSettings.modeKey ||
             key == NotificationsSettings.hitSoundModeKey ||
             key == NotificationsSettings.critSoundModeKey
@@ -1829,7 +1886,8 @@ class ExperimentalVisualsMenuScreen : Screen(Component.empty()) {
             NotificationsSettings.armorStage2PercentKey -> kotlin.math.round(rawValue)
             NotificationsSettings.stage1LeadKey,
             NotificationsSettings.stage2LeadKey,
-            NotificationsSettings.repeatPeriodKey -> kotlin.math.round(rawValue * 10f) / 10f
+            NotificationsSettings.repeatPeriodKey,
+            TargetHudModule.lifetimeSecondsKey -> kotlin.math.round(rawValue * 10f) / 10f
             else -> if (row.key.endsWith(":size")) {
                 kotlin.math.round(rawValue * 10f) / 10f
             } else {
@@ -1857,7 +1915,8 @@ class ExperimentalVisualsMenuScreen : Screen(Component.empty()) {
             NotificationsSettings.armorStage2PercentKey -> "${value.roundToInt()}%"
             NotificationsSettings.stage1LeadKey,
             NotificationsSettings.stage2LeadKey,
-            NotificationsSettings.repeatPeriodKey -> "${String.format(java.util.Locale.US, "%.1f", value)}s"
+            NotificationsSettings.repeatPeriodKey,
+            TargetHudModule.lifetimeSecondsKey -> "${String.format(java.util.Locale.US, "%.1f", value)}s"
             else -> if (key.endsWith(":size")) {
                 "${String.format(java.util.Locale.US, "%.1f", value)}x"
             } else {
@@ -1872,9 +1931,9 @@ class ExperimentalVisualsMenuScreen : Screen(Component.empty()) {
 
     private fun neonBorderColor(): Int = VisualThemeSettings.neonBorder()
 
-    private fun neonBorderVisualEnabled(): Boolean = VisualThemeSettings.neonBorderEnabled()
+    private fun neonBorderVisualEnabled(): Boolean = VisualThemeSettings.themeAllowsNeon()
 
-    private fun neonGlowVisualEnabled(): Boolean = VisualThemeSettings.neonGlowEnabled()
+    private fun neonGlowVisualEnabled(): Boolean = VisualThemeSettings.themeAllowsOuterGlow()
 
     private fun toggleFillColor(): Int = VisualThemeSettings.toggleFill()
 
@@ -1884,32 +1943,64 @@ class ExperimentalVisualsMenuScreen : Screen(Component.empty()) {
 
     private fun isLightMenuTheme(): Boolean = VisualThemeSettings.menuPreset() == VisualThemeSettings.MenuPreset.LIGHT
 
-    private fun menuTextPrimaryColor(): Int = if (isLightMenuTheme()) 0xFF1F2A3D.toInt() else 0xFFF4F6FF.toInt()
+    private fun isTransparentMenuTheme(): Boolean = VisualThemeSettings.isTransparentPreset()
 
-    private fun menuTextSecondaryColor(): Int = if (isLightMenuTheme()) 0xFF5F6E89.toInt() else 0xFFA5B0D0.toInt()
+    private fun menuTextPrimaryColor(): Int = VisualThemeSettings.textPrimary()
 
-    private fun menuTextMutedColor(): Int = if (isLightMenuTheme()) 0xFF71809A.toInt() else 0xFF8A97BA.toInt()
+    private fun menuTextSecondaryColor(): Int = VisualThemeSettings.textSecondary()
 
-    private fun menuTextDimColor(): Int = if (isLightMenuTheme()) 0xFF7B879C.toInt() else 0xFF7380A1.toInt()
+    private fun menuTextMutedColor(): Int = VisualThemeSettings.textMuted()
 
-    private fun menuSearchFillColor(): Int = if (isLightMenuTheme()) 0xEAF1F6FF.toInt() else 0xD011192A.toInt()
+    private fun menuTextDimColor(): Int = when {
+        isTransparentMenuTheme() -> 0xFFB2BAC7.toInt()
+        isLightMenuTheme() -> 0xFF7B879C.toInt()
+        else -> 0xFF7380A1.toInt()
+    }
 
-    private fun menuSearchBorderColor(): Int = if (isLightMenuTheme()) 0x8EBCCDE5.toInt() else 0x523E4D74
+    private fun menuSearchFillColor(): Int = when {
+        isTransparentMenuTheme() -> 0x40191C21
+        isLightMenuTheme() -> 0xEAF1F6FF.toInt()
+        else -> 0xD011192A.toInt()
+    }
 
-    private fun menuFieldFillColor(): Int = if (isLightMenuTheme()) 0xEEF0F5FD.toInt() else 0xCC10182A.toInt()
+    private fun menuSearchBorderColor(): Int = when {
+        isTransparentMenuTheme() -> 0x647A8696
+        isLightMenuTheme() -> 0x8EBCCDE5.toInt()
+        else -> 0x523E4D74
+    }
 
-    private fun menuFieldBorderColor(): Int = if (isLightMenuTheme()) 0x8CBCCDDF.toInt() else 0x57384866
+    private fun menuFieldFillColor(): Int = when {
+        isTransparentMenuTheme() -> 0x48181B20
+        isLightMenuTheme() -> 0xEEF0F5FD.toInt()
+        else -> 0xCC10182A.toInt()
+    }
 
-    private fun menuIconSlotFillColor(): Int = if (isLightMenuTheme()) 0xCFEAF1FC.toInt() else 0xA2141E33.toInt()
+    private fun menuFieldBorderColor(): Int = when {
+        isTransparentMenuTheme() -> 0x60778493
+        isLightMenuTheme() -> 0x8CBCCDDF.toInt()
+        else -> 0x57384866
+    }
 
-    private fun menuIconSlotBorderColor(): Int = if (isLightMenuTheme()) 0x94BACBE4.toInt() else 0x5B3E4A69
+    private fun menuIconSlotFillColor(): Int = when {
+        isTransparentMenuTheme() -> 0x4A171B1F
+        isLightMenuTheme() -> 0xCFEAF1FC.toInt()
+        else -> 0xA2141E33.toInt()
+    }
+
+    private fun menuIconSlotBorderColor(): Int = when {
+        isTransparentMenuTheme() -> 0x5F778391
+        isLightMenuTheme() -> 0x94BACBE4.toInt()
+        else -> 0x5B3E4A69
+    }
 
     private fun boostedNeonColor(color: Int): Int {
         return color
     }
 
     private fun menuGlow(color: Int, radiusPx: Float, strength: Float, opacity: Float): SdfGlowStyle {
-        if (!neonGlowVisualEnabled()) return SdfGlowStyle(0x00000000, radiusPx = 0f, strength = 0f, opacity = 0f)
+        if (!VisualThemeSettings.themeAllowsOuterGlow()) {
+            return SdfGlowStyle(0x00000000, radiusPx = 0f, strength = 0f, opacity = 0f)
+        }
         val strengthScale = if (isLightMenuTheme()) 0.78f else 1.08f
         val opacityScale = if (isLightMenuTheme()) 0.82f else 1.18f
         return SdfGlowStyle(
@@ -1921,7 +2012,9 @@ class ExperimentalVisualsMenuScreen : Screen(Component.empty()) {
     }
 
     private fun menuNeonBorder(color: Int, widthPx: Float, softnessPx: Float, strength: Float): SdfNeonBorderStyle {
-        if (!neonBorderVisualEnabled()) return SdfNeonBorderStyle(0x00000000, widthPx = 0f, softnessPx = 0f, strength = 0f)
+        if (!VisualThemeSettings.themeAllowsNeon()) {
+            return SdfNeonBorderStyle(0x00000000, widthPx = 0f, softnessPx = 0f, strength = 0f)
+        }
         val widthScale = if (isLightMenuTheme()) 1.18f else 1.18f
         val softnessScale = if (isLightMenuTheme()) 1.04f else 1.12f
         val strengthScale = if (isLightMenuTheme()) 1.10f else 1.24f
@@ -1933,15 +2026,49 @@ class ExperimentalVisualsMenuScreen : Screen(Component.empty()) {
         )
     }
 
+    private fun choiceChipFill(selected: Boolean, hovered: Boolean): Int = when {
+        isTransparentMenuTheme() && selected -> blendColor(0x66212A37, sliderFillColor(), 0.62f)
+        isTransparentMenuTheme() && hovered -> 0x5A26303E
+        isTransparentMenuTheme() -> 0x50212936
+        selected && isLightMenuTheme() -> blendColor(0xFFF2F7FF.toInt(), sliderFillColor(), 0.38f)
+        selected -> blendColor(0xFF19243A.toInt(), sliderFillColor(), 0.78f)
+        hovered && isLightMenuTheme() -> 0xEAF2F7FF.toInt()
+        hovered -> 0xD1141D30.toInt()
+        isLightMenuTheme() -> 0xDDF7FAFE.toInt()
+        else -> 0xC910182A.toInt()
+    }
+
+    private fun choiceChipBorder(selected: Boolean, hovered: Boolean): Int = when {
+        isTransparentMenuTheme() && selected -> blendColor(0x6A677383, sliderFillColor(), 0.34f)
+        isTransparentMenuTheme() && hovered -> blendColor(0x58677383, accentStrongColor(), 0.18f)
+        isTransparentMenuTheme() -> 0x4E677383
+        selected && isLightMenuTheme() -> blendColor(0xFFB9CAE3.toInt(), sliderFillColor(), 0.34f)
+        selected -> blendColor(accentStrongColor(), neonBorderColor(), 0.35f)
+        hovered && isLightMenuTheme() -> blendColor(0xFFCBD7E8.toInt(), accentStrongColor(), 0.10f)
+        hovered -> blendColor(0xFF425270.toInt(), accentStrongColor(), 0.18f)
+        isLightMenuTheme() -> 0x88C6D1E3.toInt()
+        else -> 0x6A33415E
+    }
+
     private fun shellStyle(): SdfPanelStyle {
         return SdfPanelStyle(
-            baseColor = if (isLightMenuTheme()) 0xE8EEF4FB.toInt() else 0xFB0B111B.toInt(),
-            borderColor = if (isLightMenuTheme()) 0xAFC3D6E8.toInt() else 0xBE334362.toInt(),
+            baseColor = when {
+                isTransparentMenuTheme() -> 0x58121519
+                isLightMenuTheme() -> 0xE8EEF4FB.toInt()
+                else -> 0xFB0B111B.toInt()
+            },
+            borderColor = when {
+                isTransparentMenuTheme() -> 0x697A8595
+                isLightMenuTheme() -> 0xAFC3D6E8.toInt()
+                else -> 0xBE334362.toInt()
+            },
             borderWidthPx = 1.5f,
             radiusPx = 30f,
             innerGlow = SdfGlowStyle(0xFFFFFFFF.toInt(), radiusPx = 20f, strength = 0.08f, opacity = 0.06f),
             outerGlow = menuGlow(accentStrongColor(), radiusPx = 44f, strength = if (isLightMenuTheme()) 0.14f else 0.22f, opacity = if (isLightMenuTheme()) 0.08f else 0.14f),
-            shade = if (isLightMenuTheme()) {
+            shade = if (isTransparentMenuTheme()) {
+                SdfShadeStyle(0x06FFFFFF, 0x0C000000)
+            } else if (isLightMenuTheme()) {
                 SdfShadeStyle(0x0CFFFFFF, 0x0CCED9E8)
             } else {
                 SdfShadeStyle(0x1AFFFFFF, 0x22000000)
@@ -1952,17 +2079,29 @@ class ExperimentalVisualsMenuScreen : Screen(Component.empty()) {
 
     private fun sidebarStyle(): SdfPanelStyle {
         return SdfPanelStyle(
-            baseColor = if (isLightMenuTheme()) 0xE4EDF3FA.toInt() else 0xF50E1728.toInt(),
-            borderColor = if (isLightMenuTheme()) 0xA3BACDE3.toInt() else 0xA13A4A69.toInt(),
+            baseColor = when {
+                isTransparentMenuTheme() -> 0x4E14171C
+                isLightMenuTheme() -> 0xE4EDF3FA.toInt()
+                else -> 0xF50E1728.toInt()
+            },
+            borderColor = when {
+                isTransparentMenuTheme() -> 0x64798695
+                isLightMenuTheme() -> 0xA3BACDE3.toInt()
+                else -> 0xA13A4A69.toInt()
+            },
             borderWidthPx = 1.2f,
             radiusPx = Theme.sectionRadius,
             innerGlow = SdfGlowStyle(accentStrongColor(), radiusPx = 16f, strength = 0.04f, opacity = 0.05f),
-            outerGlow = if (isLightMenuTheme()) {
+            outerGlow = if (isTransparentMenuTheme()) {
+                SdfGlowStyle(0x00000000, radiusPx = 0f, strength = 0f, opacity = 0f)
+            } else if (isLightMenuTheme()) {
                 SdfGlowStyle(0xFFD8E2F0.toInt(), radiusPx = 18f, strength = 0.06f, opacity = 0.07f)
             } else {
                 SdfGlowStyle(0xFF000000.toInt(), radiusPx = 18f, strength = 0.16f, opacity = 0.24f)
             },
-            shade = if (isLightMenuTheme()) {
+            shade = if (isTransparentMenuTheme()) {
+                SdfShadeStyle(0x06FFFFFF, 0x0C000000)
+            } else if (isLightMenuTheme()) {
                 SdfShadeStyle(0x08FFFFFF, 0x0CD2DDEC)
             } else {
                 SdfShadeStyle(0x10FFFFFF, 0x12000000)
@@ -1973,17 +2112,29 @@ class ExperimentalVisualsMenuScreen : Screen(Component.empty()) {
 
     private fun sectionStyle(): SdfPanelStyle {
         return SdfPanelStyle(
-            baseColor = if (isLightMenuTheme()) 0xE7F0F6FC.toInt() else 0xF40D1627.toInt(),
-            borderColor = if (isLightMenuTheme()) 0xA6C0CEE3.toInt() else 0xA13A4A69.toInt(),
+            baseColor = when {
+                isTransparentMenuTheme() -> 0x4A14171C
+                isLightMenuTheme() -> 0xE7F0F6FC.toInt()
+                else -> 0xF40D1627.toInt()
+            },
+            borderColor = when {
+                isTransparentMenuTheme() -> 0x64798695
+                isLightMenuTheme() -> 0xA6C0CEE3.toInt()
+                else -> 0xA13A4A69.toInt()
+            },
             borderWidthPx = 1.2f,
             radiusPx = Theme.sectionRadius,
             innerGlow = SdfGlowStyle(0xFFFFFFFF.toInt(), radiusPx = 10f, strength = 0.03f, opacity = 0.03f),
-            outerGlow = if (isLightMenuTheme()) {
+            outerGlow = if (isTransparentMenuTheme()) {
+                SdfGlowStyle(0x00000000, radiusPx = 0f, strength = 0f, opacity = 0f)
+            } else if (isLightMenuTheme()) {
                 SdfGlowStyle(0xFFDDE6F4.toInt(), radiusPx = 18f, strength = 0.06f, opacity = 0.07f)
             } else {
                 SdfGlowStyle(0xFF000000.toInt(), radiusPx = 18f, strength = 0.15f, opacity = 0.18f)
             },
-            shade = if (isLightMenuTheme()) {
+            shade = if (isTransparentMenuTheme()) {
+                SdfShadeStyle(0x06FFFFFF, 0x0C000000)
+            } else if (isLightMenuTheme()) {
                 SdfShadeStyle(0x08FFFFFF, 0x0CD2DEEE)
             } else {
                 SdfShadeStyle(0x10FFFFFF, 0x10000000)
@@ -1994,13 +2145,23 @@ class ExperimentalVisualsMenuScreen : Screen(Component.empty()) {
 
     private fun listStyle(): SdfPanelStyle {
         return SdfPanelStyle(
-            baseColor = if (isLightMenuTheme()) 0xE9F1F7FC.toInt() else 0xF70C1323.toInt(),
-            borderColor = if (isLightMenuTheme()) 0x9DBFD0E3.toInt() else 0x96354563.toInt(),
+            baseColor = when {
+                isTransparentMenuTheme() -> 0x4613161B
+                isLightMenuTheme() -> 0xE9F1F7FC.toInt()
+                else -> 0xF70C1323.toInt()
+            },
+            borderColor = when {
+                isTransparentMenuTheme() -> 0x61788594
+                isLightMenuTheme() -> 0x9DBFD0E3.toInt()
+                else -> 0x96354563.toInt()
+            },
             borderWidthPx = 1f,
             radiusPx = Theme.sectionRadius,
             innerGlow = SdfGlowStyle(0xFFFFFFFF.toInt(), radiusPx = 8f, strength = 0.02f, opacity = 0.02f),
             outerGlow = menuGlow(accentColor(), radiusPx = 18f, strength = if (isLightMenuTheme()) 0.06f else 0.10f, opacity = if (isLightMenuTheme()) 0.04f else 0.06f),
-            shade = if (isLightMenuTheme()) {
+            shade = if (isTransparentMenuTheme()) {
+                SdfShadeStyle(0x06FFFFFF, 0x0A000000)
+            } else if (isLightMenuTheme()) {
                 SdfShadeStyle(0x06FFFFFF, 0x0AD0DDED)
             } else {
                 SdfShadeStyle(0x0BFFFFFF, 0x12000000)
@@ -2011,13 +2172,23 @@ class ExperimentalVisualsMenuScreen : Screen(Component.empty()) {
 
     private fun settingsStyle(): SdfPanelStyle {
         return SdfPanelStyle(
-            baseColor = if (isLightMenuTheme()) 0xE8EFF6FC.toInt() else 0xF70D1627.toInt(),
-            borderColor = if (isLightMenuTheme()) 0xA2C0D0E4.toInt() else 0xA13A4A69.toInt(),
+            baseColor = when {
+                isTransparentMenuTheme() -> 0x4A14171C
+                isLightMenuTheme() -> 0xE8EFF6FC.toInt()
+                else -> 0xF70D1627.toInt()
+            },
+            borderColor = when {
+                isTransparentMenuTheme() -> 0x64798695
+                isLightMenuTheme() -> 0xA2C0D0E4.toInt()
+                else -> 0xA13A4A69.toInt()
+            },
             borderWidthPx = 1.2f,
             radiusPx = Theme.sectionRadius,
             innerGlow = SdfGlowStyle(accentStrongColor(), radiusPx = 12f, strength = 0.05f, opacity = 0.04f),
             outerGlow = menuGlow(accentStrongColor(), radiusPx = 24f, strength = if (isLightMenuTheme()) 0.08f else 0.14f, opacity = if (isLightMenuTheme()) 0.05f else 0.08f),
-            shade = if (isLightMenuTheme()) {
+            shade = if (isTransparentMenuTheme()) {
+                SdfShadeStyle(0x06FFFFFF, 0x0C000000)
+            } else if (isLightMenuTheme()) {
                 SdfShadeStyle(0x08FFFFFF, 0x0CD1DDEB)
             } else {
                 SdfShadeStyle(0x10FFFFFF, 0x14000000)
@@ -2028,11 +2199,17 @@ class ExperimentalVisualsMenuScreen : Screen(Component.empty()) {
 
     private fun tabStyle(selected: Boolean, hovered: Boolean): SdfPanelStyle {
         val border = when {
+            selected && isTransparentMenuTheme() -> blendColor(0xFF687382.toInt(), accentStrongColor(), 0.42f)
+            hovered && isTransparentMenuTheme() -> blendColor(0xFF677382.toInt(), accentStrongColor(), 0.18f)
+            isTransparentMenuTheme() -> 0xFF5A6578.toInt()
             selected -> accentStrongColor()
             hovered -> if (isLightMenuTheme()) blendColor(0xFF9FB9DE.toInt(), accentStrongColor(), 0.22f) else blendColor(0xFF536691.toInt(), accentStrongColor(), 0.35f)
             else -> if (isLightMenuTheme()) 0xFFC4D0E5.toInt() else 0xFF2E3B55.toInt()
         }
         val fill = when {
+            selected && isTransparentMenuTheme() -> blendColor(0x721A2230, accentStrongColor(), 0.28f)
+            hovered && isTransparentMenuTheme() -> 0x64222B39
+            isTransparentMenuTheme() -> 0x54202936
             selected -> if (isLightMenuTheme()) 0xFFEFF5FF.toInt() else 0xFF1A2540.toInt()
             hovered -> if (isLightMenuTheme()) 0xFFF4F8FF.toInt() else 0xFF142034.toInt()
             else -> if (isLightMenuTheme()) 0xFFF8FAFE.toInt() else 0xFF101827.toInt()
@@ -2050,19 +2227,27 @@ class ExperimentalVisualsMenuScreen : Screen(Component.empty()) {
             innerGlow = SdfGlowStyle(
                 color = if (selected) accentStrongColor() else 0xFFFFFFFF.toInt(),
                 radiusPx = 12f,
-                strength = if (selected) 0.10f else 0.03f,
-                opacity = if (selected) 0.08f else 0.02f,
+                strength = if (isTransparentMenuTheme()) 0.03f else if (selected) 0.10f else 0.03f,
+                opacity = if (isTransparentMenuTheme()) 0.02f else if (selected) 0.08f else 0.02f,
             ),
             outerGlow = if (selected) {
                 menuGlow(accentStrongColor(), radiusPx = 18f, strength = 0.22f, opacity = glowOpacity)
             } else {
-                if (isLightMenuTheme()) {
+                if (isTransparentMenuTheme()) {
+                    SdfGlowStyle(0x00000000, radiusPx = 0f, strength = 0f, opacity = 0f)
+                } else if (isLightMenuTheme()) {
                     SdfGlowStyle(0xFFDDE6F4.toInt(), radiusPx = 18f, strength = 0.08f, opacity = glowOpacity)
                 } else {
                     SdfGlowStyle(0xFF000000.toInt(), radiusPx = 18f, strength = 0.12f, opacity = glowOpacity)
                 }
             },
-            shade = if (isLightMenuTheme()) SdfShadeStyle(0x08FFFFFF, 0x0ED4DEEE) else SdfShadeStyle(0x0EFFFFFF, 0x14000000),
+            shade = if (isTransparentMenuTheme()) {
+                SdfShadeStyle(0x04FFFFFF, 0x10000000)
+            } else if (isLightMenuTheme()) {
+                SdfShadeStyle(0x08FFFFFF, 0x0ED4DEEE)
+            } else {
+                SdfShadeStyle(0x0EFFFFFF, 0x14000000)
+            },
             neonBorder = menuNeonBorder(
                 color = if (selected) VisualThemeSettings.withAlpha(neonBorderColor(), 0xC0) else if (hovered) VisualThemeSettings.withAlpha(neonBorderColor(), 0x54) else 0x00000000,
                 widthPx = if (selected) 1.1f else 0.9f,
@@ -2080,7 +2265,13 @@ class ExperimentalVisualsMenuScreen : Screen(Component.empty()) {
             else -> 0.18f
         }
         return SdfPanelStyle(
-            baseColor = if (isLightMenuTheme()) blendColor(0x00FFFFFF, 0x18DCE7F8, emphasis) else blendColor(0x08000000, 0x1A17264A, emphasis),
+            baseColor = if (isTransparentMenuTheme()) {
+                blendColor(0x08161B24, 0x141E2635, emphasis)
+            } else if (isLightMenuTheme()) {
+                blendColor(0x00FFFFFF, 0x18DCE7F8, emphasis)
+            } else {
+                blendColor(0x08000000, 0x1A17264A, emphasis)
+            },
             borderColor = 0x00000000,
             borderWidthPx = 0f,
             radiusPx = 22f,
@@ -2097,12 +2288,20 @@ class ExperimentalVisualsMenuScreen : Screen(Component.empty()) {
 
     private fun cardSurfaceStyle(enabled: Boolean, selected: Boolean, hovered: Boolean): SdfPanelStyle {
         val fill = when {
+            selected && isTransparentMenuTheme() -> blendColor(0x781A2230, accentStrongColor(), 0.24f)
+            enabled && isTransparentMenuTheme() -> 0x6C1D2532
+            hovered && isTransparentMenuTheme() -> 0x66212936
+            isTransparentMenuTheme() -> 0x5A1D2531
             selected -> if (isLightMenuTheme()) 0xFFEFF5FF.toInt() else 0xFF18253E.toInt()
             enabled -> if (isLightMenuTheme()) 0xFFF4F8FF.toInt() else 0xFF152137.toInt()
             hovered -> if (isLightMenuTheme()) 0xFFF7FAFF.toInt() else 0xFF131F32.toInt()
             else -> if (isLightMenuTheme()) 0xFFF9FBFF.toInt() else 0xFF101829.toInt()
         }
         val border = when {
+            selected && isTransparentMenuTheme() -> blendColor(0xFF697382.toInt(), accentStrongColor(), 0.34f)
+            enabled && isTransparentMenuTheme() -> blendColor(0xFF5D697C.toInt(), accentStrongColor(), 0.18f)
+            hovered && isTransparentMenuTheme() -> 0xFF647081.toInt()
+            isTransparentMenuTheme() -> 0xFF566171.toInt()
             selected -> accentStrongColor()
             enabled -> if (isLightMenuTheme()) blendColor(0xFFB3C5E3.toInt(), accentStrongColor(), 0.26f) else blendColor(0xFF536B9E.toInt(), accentStrongColor(), 0.45f)
             hovered -> if (isLightMenuTheme()) 0xFFBFCDE2.toInt() else 0xFF415474.toInt()
@@ -2131,10 +2330,11 @@ class ExperimentalVisualsMenuScreen : Screen(Component.empty()) {
             outerGlow = if (selected) {
                 menuGlow(accentStrongColor(), radiusPx = 14f, strength = 0.10f, opacity = 0.06f)
             } else {
-                if (isLightMenuTheme()) SdfGlowStyle(0xFFE0E8F4.toInt(), radiusPx = 14f, strength = 0.08f, opacity = 0.04f)
+                if (isTransparentMenuTheme()) SdfGlowStyle(0x00000000, radiusPx = 0f, strength = 0f, opacity = 0f)
+                else if (isLightMenuTheme()) SdfGlowStyle(0xFFE0E8F4.toInt(), radiusPx = 14f, strength = 0.08f, opacity = 0.04f)
                 else SdfGlowStyle(0xFF000000.toInt(), radiusPx = 14f, strength = 0.10f, opacity = 0.02f)
             },
-            shade = if (isLightMenuTheme()) SdfShadeStyle(0x08FFFFFF, 0x0ED4DFEE) else SdfShadeStyle(0x12FFFFFF, 0x16000000),
+            shade = if (isTransparentMenuTheme()) SdfShadeStyle(0x04FFFFFF, 0x10000000) else if (isLightMenuTheme()) SdfShadeStyle(0x08FFFFFF, 0x0ED4DFEE) else SdfShadeStyle(0x12FFFFFF, 0x16000000),
             neonBorder = menuNeonBorder(
                 color = when {
                     selected -> VisualThemeSettings.withAlpha(neonBorderColor(), 0xCC)
@@ -2167,20 +2367,24 @@ class ExperimentalVisualsMenuScreen : Screen(Component.empty()) {
     private fun settingRowStyle(hovered: Boolean): SdfPanelStyle {
         return SdfPanelStyle(
             baseColor = if (hovered) {
-                if (isLightMenuTheme()) 0xFFF2F6FD.toInt() else 0xFF152138.toInt()
+                if (isTransparentMenuTheme()) 0x68222A38
+                else if (isLightMenuTheme()) 0xFFF2F6FD.toInt() else 0xFF152138.toInt()
             } else {
-                if (isLightMenuTheme()) 0xFFF7F9FE.toInt() else 0xFF111A2D.toInt()
+                if (isTransparentMenuTheme()) 0x601E2633
+                else if (isLightMenuTheme()) 0xFFF7F9FE.toInt() else 0xFF111A2D.toInt()
             },
             borderColor = if (hovered) {
-                if (isLightMenuTheme()) blendColor(0xFFBCCCE3.toInt(), accentStrongColor(), 0.14f) else blendColor(0xFF4B5D85.toInt(), accentStrongColor(), 0.25f)
+                if (isTransparentMenuTheme()) blendColor(0xFF667282.toInt(), accentStrongColor(), 0.18f)
+                else if (isLightMenuTheme()) blendColor(0xFFBCCCE3.toInt(), accentStrongColor(), 0.14f) else blendColor(0xFF4B5D85.toInt(), accentStrongColor(), 0.25f)
             } else {
-                if (isLightMenuTheme()) 0xFFC7D2E5.toInt() else 0xFF33415F.toInt()
+                if (isTransparentMenuTheme()) 0xFF5B6777.toInt()
+                else if (isLightMenuTheme()) 0xFFC7D2E5.toInt() else 0xFF33415F.toInt()
             },
             borderWidthPx = 1f,
             radiusPx = 14f,
             innerGlow = SdfGlowStyle(0xFFFFFFFF.toInt(), radiusPx = 8f, strength = 0.02f, opacity = 0.02f),
             outerGlow = menuGlow(accentStrongColor(), radiusPx = 18f, strength = 0.12f, opacity = if (hovered) 0.07f else 0.04f),
-            shade = if (isLightMenuTheme()) SdfShadeStyle(0x08FFFFFF, 0x0ED5E0EF) else SdfShadeStyle(0x0EFFFFFF, 0x14000000),
+            shade = if (isTransparentMenuTheme()) SdfShadeStyle(0x04FFFFFF, 0x10000000) else if (isLightMenuTheme()) SdfShadeStyle(0x08FFFFFF, 0x0ED5E0EF) else SdfShadeStyle(0x0EFFFFFF, 0x14000000),
             neonBorder = menuNeonBorder(
                 color = if (hovered) VisualThemeSettings.withAlpha(neonBorderColor(), 0x88) else VisualThemeSettings.withAlpha(neonBorderColor(), 0x30),
                 widthPx = if (hovered) 1.0f else 0.8f,
@@ -2191,17 +2395,21 @@ class ExperimentalVisualsMenuScreen : Screen(Component.empty()) {
     }
 
     private fun inputRowStyle(invalid: Boolean = false, themeColorRow: Boolean = false, themeColor: Int? = null): SdfPanelStyle {
-        val borderColor = if (invalid) 0xFF7B3A44.toInt() else 0xFF33415F.toInt()
+        val borderColor = if (invalid) 0xFF7B3A44.toInt() else if (isTransparentMenuTheme()) 0xFF5A6678.toInt() else 0xFF33415F.toInt()
         val neonColor = if (invalid) 0xA0FF7A7A.toInt() else VisualThemeSettings.withAlpha(neonBorderColor(), if (themeColorRow) 0x20 else 0x42)
         val glowColor = if (invalid) 0xFFFF7676.toInt() else accentStrongColor()
         return SdfPanelStyle(
-            baseColor = if (isLightMenuTheme()) 0xFFF7F9FE.toInt() else 0xFF111A2D.toInt(),
+            baseColor = when {
+                isTransparentMenuTheme() -> 0x621E2633
+                isLightMenuTheme() -> 0xFFF7F9FE.toInt()
+                else -> 0xFF111A2D.toInt()
+            },
             borderColor = if (isLightMenuTheme() && !invalid) 0xFFC7D2E5.toInt() else borderColor,
             borderWidthPx = 1f,
             radiusPx = 14f,
             innerGlow = SdfGlowStyle(0xFFFFFFFF.toInt(), radiusPx = 8f, strength = 0.02f, opacity = 0.02f),
             outerGlow = menuGlow(glowColor, radiusPx = if (themeColorRow && !invalid) 16f else 18f, strength = if (themeColorRow && !invalid) 0.08f else 0.10f, opacity = if (invalid) 0.08f else if (themeColorRow) 0.03f else 0.05f),
-            shade = if (isLightMenuTheme()) SdfShadeStyle(0x08FFFFFF, 0x0ED5E0EF) else SdfShadeStyle(0x0AFFFFFF, 0x12000000),
+            shade = if (isTransparentMenuTheme()) SdfShadeStyle(0x04FFFFFF, 0x10000000) else if (isLightMenuTheme()) SdfShadeStyle(0x08FFFFFF, 0x0ED5E0EF) else SdfShadeStyle(0x0AFFFFFF, 0x12000000),
             neonBorder = menuNeonBorder(neonColor, widthPx = if (themeColorRow && !invalid) 0.82f else 0.9f, softnessPx = if (themeColorRow && !invalid) 3.8f else 4.5f, strength = if (invalid) 0.48f else if (themeColorRow) 0.14f else 0.30f),
         )
     }
@@ -2219,20 +2427,25 @@ class ExperimentalVisualsMenuScreen : Screen(Component.empty()) {
         val settled = if (abs(target - next) < 0.002f) target else next
         toggleProgressByKey[animationKey] = settled
 
-        val trackFill = if (isLightMenuTheme()) {
+        val trackFill = if (isTransparentMenuTheme()) {
+            blendColor(0x66202836, VisualThemeSettings.withAlpha(toggleFillColor(), 0xD6), settled)
+        } else if (isLightMenuTheme()) {
             blendColor(0xFFE2EAF6.toInt(), VisualThemeSettings.withAlpha(toggleFillColor(), 0xE8), settled)
         } else {
             blendColor(0xC617202F.toInt(), VisualThemeSettings.withAlpha(toggleFillColor(), 0xD6), settled)
         }
         val brightTrackBorder = blendColor(boostedNeonColor(neonBorderColor()), accentStrongColor(), 0.28f)
-        val trackBorder = if (neonBorderVisualEnabled()) {
-            if (isLightMenuTheme()) {
+        val trackBorder = if (VisualThemeSettings.themeAllowsNeon()) {
+            if (isTransparentMenuTheme()) {
+                blendColor(0xFF687282.toInt(), brightTrackBorder, 0.18f + (0.22f * settled))
+            } else if (isLightMenuTheme()) {
                 blendColor(0xFFBCC9DE.toInt(), brightTrackBorder, 0.18f + (0.38f * settled))
             } else {
                 blendColor(0xFF42506B.toInt(), brightTrackBorder, 0.30f + (0.58f * settled))
             }
         } else {
-            if (isLightMenuTheme()) blendColor(0xFFD4DDEC.toInt(), 0xFFB8C4D8.toInt(), 0.18f + (0.20f * settled))
+            if (isTransparentMenuTheme()) blendColor(0xFF647080.toInt(), 0xFF546071.toInt(), 0.18f + (0.20f * settled))
+            else if (isLightMenuTheme()) blendColor(0xFFD4DDEC.toInt(), 0xFFB8C4D8.toInt(), 0.18f + (0.20f * settled))
             else blendColor(0x7A394866, 0xFF46536E.toInt(), 0.18f + (0.20f * settled))
         }
         val trackGlowColor = blendColor(accentStrongColor(), boostedNeonColor(neonBorderColor()), 0.46f)
@@ -2254,7 +2467,7 @@ class ExperimentalVisualsMenuScreen : Screen(Component.empty()) {
                     strength = 0.18f + (0.10f * settled),
                     opacity = 0.06f + (0.12f * settled),
                 ),
-                shade = if (isLightMenuTheme()) SdfShadeStyle(0x08FFFFFF, 0x0ED4DFEE) else SdfShadeStyle(0x0EFFFFFF, 0x12000000),
+                shade = if (isTransparentMenuTheme()) SdfShadeStyle(0x04FFFFFF, 0x10000000) else if (isLightMenuTheme()) SdfShadeStyle(0x08FFFFFF, 0x0ED4DFEE) else SdfShadeStyle(0x0EFFFFFF, 0x12000000),
                 neonBorder = menuNeonBorder(
                     VisualThemeSettings.withAlpha(boostedNeonColor(neonBorderColor()), (0x48 + (0x7A * settled).toInt()).coerceIn(0, 255)),
                     widthPx = 0.95f + (0.18f * settled),
@@ -2278,8 +2491,14 @@ class ExperimentalVisualsMenuScreen : Screen(Component.empty()) {
             knobRadius * 2,
             knobRadius * 2,
             SdfPanelStyle(
-                baseColor = if (isLightMenuTheme()) blendColor(0xFFFDFEFF.toInt(), sliderKnobColor(), 0.65f) else sliderKnobColor(),
-                borderColor = if (neonBorderVisualEnabled()) {
+                baseColor = if (isTransparentMenuTheme()) {
+                    blendColor(0xFFF9FBFF.toInt(), sliderKnobColor(), 0.52f)
+                } else if (isLightMenuTheme()) {
+                    blendColor(0xFFFDFEFF.toInt(), sliderKnobColor(), 0.65f)
+                } else {
+                    sliderKnobColor()
+                },
+                borderColor = if (VisualThemeSettings.themeAllowsNeon()) {
                     blendColor(sliderKnobColor(), brightTrackBorder, 0.44f)
                 } else {
                     blendColor(sliderKnobColor(), accentStrongColor(), 0.28f)
@@ -2293,7 +2512,7 @@ class ExperimentalVisualsMenuScreen : Screen(Component.empty()) {
                     strength = 0.12f + (0.10f * settled),
                     opacity = 0.04f + (0.10f * settled),
                 ),
-                shade = if (isLightMenuTheme()) SdfShadeStyle(0x08FFFFFF, 0x0ACEDAE9) else SdfShadeStyle(0x10FFFFFF, 0x08000000),
+                shade = if (isTransparentMenuTheme()) SdfShadeStyle(0x04FFFFFF, 0x08000000) else if (isLightMenuTheme()) SdfShadeStyle(0x08FFFFFF, 0x0ACEDAE9) else SdfShadeStyle(0x10FFFFFF, 0x08000000),
                 neonBorder = menuNeonBorder(
                     VisualThemeSettings.withAlpha(boostedNeonColor(neonBorderColor()), (0x34 + (0x88 * settled).toInt()).coerceIn(0, 255)),
                     widthPx = 0.82f + (0.20f * settled),

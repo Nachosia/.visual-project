@@ -2,6 +2,7 @@ package com.visualproject.client.hud.cooldowns
 
 import com.visualproject.client.ModuleStateStore
 import com.visualproject.client.VisualThemeSettings
+import com.visualproject.client.render.sdf.BackdropBlurRenderer
 import com.visualproject.client.render.sdf.SdfGlowStyle
 import com.visualproject.client.render.sdf.SdfNeonBorderStyle
 import com.visualproject.client.render.sdf.SdfPanelRenderer
@@ -88,6 +89,7 @@ internal class CooldownsHudRenderer {
         val accentSync = ModuleStateStore.isSettingEnabled("${moduleId}:accent_sync")
         val neonColor = if (accentSync) VisualThemeSettings.neonBorder() else 0xFF7A2730.toInt()
         val glowColor = if (accentSync) VisualThemeSettings.themedAccentGlowBase() else VisualThemeSettings.themedFallbackGlow(0xFF4A171D.toInt())
+        BackdropBlurRenderer.captureBackdrop()
 
         context.pose().pushMatrix()
         context.pose().translate(bounds.x.toFloat(), bounds.y.toFloat())

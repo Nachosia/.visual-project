@@ -3,12 +3,17 @@ package com.visualproject.client.hud.watermark
 import com.mojang.blaze3d.platform.NativeImage
 import com.visualproject.client.ModuleStateStore
 import com.visualproject.client.VisualThemeSettings
+import com.visualproject.client.hud.shared.HudRuntimeStats
+import com.visualproject.client.hud.shared.SharedMusicHudRuntime
+import com.visualproject.client.render.sdf.BackdropBlurRenderer
+import com.visualproject.client.render.sdf.SdfBackdropStyle
 import com.visualproject.client.render.sdf.SdfGlowStyle
 import com.visualproject.client.render.sdf.SdfNeonBorderStyle
 import com.visualproject.client.render.sdf.SdfPanelRenderer
 import com.visualproject.client.render.sdf.SdfPanelStyle
 import com.visualproject.client.render.sdf.SdfShadeStyle
 import com.visualproject.client.texture.NonDumpableDynamicTexture
+import com.visualproject.client.texture.TextureFiltering
 import com.visualproject.client.ui.menu.blendColor
 import com.visualproject.client.vText
 import com.visualproject.client.vBrandText
@@ -23,19 +28,40 @@ import net.minecraft.resources.Identifier
 import org.slf4j.LoggerFactory
 import java.nio.file.Files
 import java.nio.file.Path
+import java.util.Locale
 import kotlin.math.abs
 import kotlin.math.min
 import kotlin.math.roundToInt
 import kotlin.math.sqrt
 
 class WatermarkHudRenderer(
-    private val musicProvider: WatermarkMusicProvider = SpotifySoundCloudMusicProvider(),
+    private val musicProvider: WatermarkMusicProvider = SharedMusicHudRuntime.provider(),
 ) {
     companion object {
         private const val watermarkModuleId = "watermark"
+        private val hypnosiaInfoEyeTexture = Identifier.fromNamespaceAndPath("visualclient", "textures/gui/icons/wm_eye_white.png")
+        private const val hypnosiaInfoEyeTextureWidth = 512
+        private const val hypnosiaInfoEyeTextureHeight = 512
         private val watermarkEyeTexture = Identifier.fromNamespaceAndPath("visualclient", "textures/gui/watermark_eye.png")
         private const val watermarkEyeTextureWidth = 512
         private const val watermarkEyeTextureHeight = 312
+        private val watermarkUserIcon = Identifier.fromNamespaceAndPath("visualclient", "textures/gui/icons/wm_user.png")
+        private val watermarkFpsIcon = Identifier.fromNamespaceAndPath("visualclient", "textures/gui/icons/wm_fps.png")
+        private val watermarkGlobeIcon = Identifier.fromNamespaceAndPath("visualclient", "textures/gui/icons/wm_globe.png")
+        private val watermarkWifiIcon = Identifier.fromNamespaceAndPath("visualclient", "textures/gui/icons/wm_wifi.png")
+        private val watermarkRamIcon = Identifier.fromNamespaceAndPath("visualclient", "textures/gui/icons/wm_ram.png")
+        private val watermarkCpuIcon = Identifier.fromNamespaceAndPath("visualclient", "textures/gui/icons/wm_cpu.png")
+    }
+
+    private object InfoLayout {
+        const val rowGap = 4
+        const val rowHeight = 24
+        const val iconSize = 10
+        const val rowPaddingX = 10
+        const val iconTextGap = 4
+        const val separatorGap = 6
+        val topSlotWidths = intArrayOf(76, 78, 78, 52)
+        val bottomSlotWidths = intArrayOf(110, 44, 44, 46)
     }
 
     private data class ArtworkResolution(
@@ -43,6 +69,14 @@ class WatermarkHudRenderer(
         val reason: String,
         val textureWidth: Int = 0,
         val textureHeight: Int = 0,
+    )
+
+    private data class InfoSegment(
+        val text: String,
+        val slotWidth: Int,
+        val icon: Identifier? = null,
+        val textureWidth: Int = 512,
+        val textureHeight: Int = 512,
     )
 
     private data class ArtworkCacheKey(
@@ -84,6 +118,11 @@ class WatermarkHudRenderer(
     private var lastRenderedExpansion: Float = 0f
     private var lastRenderedScale: Float = 1f
     private var lastRenderedActualBounds: HudBounds? = null
+    private var positions: MutableMap<WatermarkHudBlockId, WatermarkHudPosition>? = null
+    private val lastDraggableBounds = mutableMapOf<WatermarkHudBlockId, WatermarkHudBlockBounds>()
+    private var activeDragBlock: WatermarkHudBlockId? = null
+    private var dragOffsetX = 0
+    private var dragOffsetY = 0
     private var smoothedTrackKey: String? = null
     private var smoothedPositionSeconds = 0f
     private var smoothedDurationSeconds = 0f
@@ -121,9 +160,12 @@ class WatermarkHudRenderer(
         client: Minecraft,
     ) {
         if (client.player == null || client.options.hideGui) return
+        lastDraggableBounds.clear()
 
-        val musicScanEnabled = ModuleStateStore.isSettingEnabled("${watermarkModuleId}:music_scan")
-        musicProvider.setScanningEnabled(musicScanEnabled)
+        if (WatermarkHudModule.watermarkType() == WatermarkHudModule.WatermarkType.HYPMOSIA_INFO) {
+            renderHypmosiaInfo(context, client)
+            return
+        }
 
         val font = client.font
         val mouseX = client.mouseHandler.getScaledXPos(client.window).toInt()
@@ -131,7 +173,7 @@ class WatermarkHudRenderer(
         val scale = hudScale()
 
         val currentLocalBounds = computeLocalBounds(animation.currentExpansion())
-        val currentActualBounds = computeActualBounds(context, animation.currentExpansion(), scale)
+        val currentActualBounds = computeActualBounds(context, client, animation.currentExpansion(), scale)
         val currentLocalMouseX = toLocalMouse(mouseX, currentActualBounds.left, scale)
         val currentLocalMouseY = toLocalMouse(mouseY, currentActualBounds.top, scale)
         val state = stateCalculator.resolve(client, currentLocalBounds, currentLocalMouseX, currentLocalMouseY)
@@ -148,12 +190,15 @@ class WatermarkHudRenderer(
         )
 
         val localBounds = computeLocalBounds(snapshot.expansion)
-        val actualBounds = computeActualBounds(context, snapshot.expansion, scale)
+        val actualBounds = computeActualBounds(context, client, snapshot.expansion, scale)
         val localMouseX = toLocalMouse(mouseX, actualBounds.left, scale)
         val localMouseY = toLocalMouse(mouseY, actualBounds.top, scale)
         val renderTrack = state.track?.let { prepareRenderTrack(client, it, snapshot.deltaSeconds) }
         lastRenderedActualBounds = actualBounds
         lastRenderedScale = scale
+        if (VisualThemeSettings.isTransparentPreset()) {
+            BackdropBlurRenderer.captureBackdrop()
+        }
 
         context.pose().pushMatrix()
         context.pose().translate(actualBounds.left.toFloat(), actualBounds.top.toFloat())
@@ -191,6 +236,78 @@ class WatermarkHudRenderer(
         handleControlClicks(client, controls, localMouseX, localMouseY, snapshot.expansion)
     }
 
+    private fun renderHypmosiaInfo(
+        context: GuiGraphics,
+        client: Minecraft,
+    ) {
+        val font = client.font
+        val scale = hudScale()
+        val snapshot = HudRuntimeStats.snapshot(client)
+        val topSegments = listOf(
+            InfoSegment("Hypnosia", InfoLayout.topSlotWidths[0], hypnosiaInfoEyeTexture, hypnosiaInfoEyeTextureWidth, hypnosiaInfoEyeTextureHeight),
+            InfoSegment(WatermarkHudModule.customLabel(), InfoLayout.topSlotWidths[1]),
+            InfoSegment(client.player?.name?.string ?: "Player", InfoLayout.topSlotWidths[2], watermarkUserIcon),
+            InfoSegment("${client.fps}FPS", InfoLayout.topSlotWidths[3], watermarkFpsIcon),
+        )
+        val bottomSegments = listOf(
+            InfoSegment(snapshot.serverLabel, InfoLayout.bottomSlotWidths[0], watermarkGlobeIcon),
+            InfoSegment("${snapshot.pingMs}MS", InfoLayout.bottomSlotWidths[1], watermarkWifiIcon),
+            InfoSegment("${snapshot.ramPercent}%", InfoLayout.bottomSlotWidths[2], watermarkRamIcon),
+            InfoSegment("${snapshot.cpuPercent.roundToInt()}%", InfoLayout.bottomSlotWidths[3], watermarkCpuIcon),
+        )
+
+        val topWidth = infoRowWidth(topSegments, InfoLayout.rowPaddingX, InfoLayout.separatorGap)
+        val bottomWidth = infoRowWidth(bottomSegments, InfoLayout.rowPaddingX, InfoLayout.separatorGap)
+        val topActualWidth = (topWidth * scale).roundToInt().coerceAtLeast(1)
+        val bottomActualWidth = (bottomWidth * scale).roundToInt().coerceAtLeast(1)
+        val rowActualHeight = scaled(InfoLayout.rowHeight, scale)
+        val blockPositions = ensurePositions(client, scale)
+
+        val topPosition = clampPosition(
+            client = client,
+            position = blockPositions.getValue(WatermarkHudBlockId.INFO_TOP),
+            hudWidth = topActualWidth,
+            hudHeight = rowActualHeight,
+        )
+        if (topPosition != blockPositions[WatermarkHudBlockId.INFO_TOP]) {
+            blockPositions[WatermarkHudBlockId.INFO_TOP] = topPosition
+        }
+
+        val bottomPosition = clampPosition(
+            client = client,
+            position = blockPositions.getValue(WatermarkHudBlockId.INFO_BOTTOM),
+            hudWidth = bottomActualWidth,
+            hudHeight = rowActualHeight,
+        )
+        if (bottomPosition != blockPositions[WatermarkHudBlockId.INFO_BOTTOM]) {
+            blockPositions[WatermarkHudBlockId.INFO_BOTTOM] = bottomPosition
+        }
+
+        lastRenderedControls = null
+        lastRenderedExpansion = 0f
+        lastRenderedActualBounds = null
+        lastRenderedScale = scale
+        lastDraggableBounds[WatermarkHudBlockId.INFO_TOP] = WatermarkHudBlockBounds(topPosition.x, topPosition.y, topActualWidth, rowActualHeight)
+        lastDraggableBounds[WatermarkHudBlockId.INFO_BOTTOM] = WatermarkHudBlockBounds(bottomPosition.x, bottomPosition.y, bottomActualWidth, rowActualHeight)
+        if (VisualThemeSettings.isTransparentPreset()) {
+            BackdropBlurRenderer.captureBackdrop()
+        }
+
+        context.pose().pushMatrix()
+        context.pose().translate(topPosition.x.toFloat(), topPosition.y.toFloat())
+        context.pose().scale(scale, scale)
+        drawInfoRow(context, font, topSegments, topWidth, InfoLayout.rowHeight, InfoLayout.iconSize, InfoLayout.rowPaddingX, InfoLayout.iconTextGap, InfoLayout.separatorGap)
+        context.pose().popMatrix()
+
+        context.pose().pushMatrix()
+        context.pose().translate(bottomPosition.x.toFloat(), bottomPosition.y.toFloat())
+        context.pose().scale(scale, scale)
+        drawInfoRow(context, font, bottomSegments, bottomWidth, InfoLayout.rowHeight, InfoLayout.iconSize, InfoLayout.rowPaddingX, InfoLayout.iconTextGap, InfoLayout.separatorGap)
+        context.pose().popMatrix()
+
+        consumeClickState(client)
+    }
+
     fun onScreenMouseClick(
         client: Minecraft,
         screen: Screen,
@@ -198,6 +315,18 @@ class WatermarkHudRenderer(
         consumed: Boolean,
     ): Boolean {
         if (mouseEvent.button() != 0) return consumed
+
+        if (screen is net.minecraft.client.gui.screens.ChatScreen) {
+            val mouseX = mouseEvent.x().toInt()
+            val mouseY = mouseEvent.y().toInt()
+            val hovered = lastDraggableBounds.entries.firstOrNull { it.value.contains(mouseX, mouseY) }
+            if (hovered != null) {
+                activeDragBlock = hovered.key
+                dragOffsetX = mouseX - hovered.value.x
+                dragOffsetY = mouseY - hovered.value.y
+                return true
+            }
+        }
 
         val controls = lastRenderedControls
         val actualBounds = lastRenderedActualBounds
@@ -235,6 +364,48 @@ class WatermarkHudRenderer(
         )
 
         return consumed || handled
+    }
+
+    fun onScreenMouseDrag(
+        client: Minecraft,
+        screen: Screen,
+        mouseEvent: MouseButtonEvent,
+        @Suppress("UNUSED_PARAMETER") horizontalAmount: Double,
+        @Suppress("UNUSED_PARAMETER") verticalAmount: Double,
+        consumed: Boolean,
+    ): Boolean {
+        if (screen !is net.minecraft.client.gui.screens.ChatScreen) return consumed
+        if (mouseEvent.button() != 0) return consumed
+
+        val dragBlock = activeDragBlock ?: return consumed
+        val bounds = lastDraggableBounds[dragBlock] ?: return consumed
+        val blockPositions = positions ?: return consumed
+        blockPositions[dragBlock] = clampPosition(
+            client = client,
+            position = WatermarkHudPosition(
+                x = mouseEvent.x().toInt() - dragOffsetX,
+                y = mouseEvent.y().toInt() - dragOffsetY,
+            ),
+            hudWidth = bounds.width,
+            hudHeight = bounds.height,
+        )
+        return true
+    }
+
+    fun onScreenMouseRelease(
+        screen: Screen,
+        mouseEvent: MouseButtonEvent,
+        consumed: Boolean,
+    ): Boolean {
+        if (screen !is net.minecraft.client.gui.screens.ChatScreen) return consumed
+        if (mouseEvent.button() != 0) return consumed
+
+        val dragged = activeDragBlock != null
+        activeDragBlock = null
+        if (dragged) {
+            positions?.let(WatermarkHudPositionStore::save)
+        }
+        return consumed || dragged
     }
 
     private fun drawMainShell(context: GuiGraphics, bounds: HudBounds, expansion: Float) {
@@ -289,6 +460,71 @@ class WatermarkHudRenderer(
         )
     }
 
+    private fun drawInfoRow(
+        context: GuiGraphics,
+        font: Font,
+        segments: List<InfoSegment>,
+        width: Int,
+        height: Int,
+        iconSize: Int,
+        rowPaddingX: Int,
+        iconTextGap: Int,
+        separatorGap: Int,
+    ) {
+        SdfPanelRenderer.draw(
+            context = context,
+            x = 0,
+            y = 0,
+            width = width,
+            height = height,
+            style = infoShellStyle(),
+        )
+
+        var cursorX = rowPaddingX
+        segments.forEachIndexed { index, segment ->
+            val contentX = cursorX
+            if (segment.icon != null) {
+                drawTextureIcon(
+                    context = context,
+                    texture = segment.icon,
+                    x = contentX,
+                    y = (height - iconSize) / 2,
+                    size = iconSize,
+                    textureWidth = segment.textureWidth,
+                    textureHeight = segment.textureHeight,
+                    tint = watermarkIconTintBase(),
+                )
+            }
+
+            val textX = if (segment.icon != null) {
+                contentX + iconSize + iconTextGap
+            } else {
+                contentX
+            }
+            val maxTextWidth = (
+                segment.slotWidth -
+                    if (segment.icon != null) (iconSize + iconTextGap) else 0
+                ).coerceAtLeast(12)
+            drawFittedText(
+                context = context,
+                font = font,
+                text = vText(segment.text),
+                x = textX,
+                y = 0,
+                availableWidth = maxTextWidth,
+                rowHeight = height,
+                color = watermarkTextPrimaryColor(),
+            )
+            cursorX += segment.slotWidth
+
+            if (index < segments.lastIndex) {
+                cursorX += separatorGap
+                context.fill(cursorX, 6, cursorX + 1, height - 6, infoSeparatorColor())
+                cursorX += separatorGap + 1
+            }
+        }
+    }
+
     private fun drawMusicCompact(
         context: GuiGraphics,
         font: Font,
@@ -324,24 +560,68 @@ class WatermarkHudRenderer(
         size: Int,
         alpha: Float,
     ) {
+        drawTextureIcon(
+            context = context,
+            texture = watermarkEyeTexture,
+            x = x,
+            y = y,
+            size = size,
+            textureWidth = watermarkEyeTextureWidth,
+            textureHeight = watermarkEyeTextureHeight,
+            tint = withAlpha(watermarkIconTintBase(forEye = true), alpha),
+        )
+    }
+
+    private fun drawTextureIcon(
+        context: GuiGraphics,
+        texture: Identifier,
+        x: Int,
+        y: Int,
+        size: Int,
+        textureWidth: Int,
+        textureHeight: Int,
+        tint: Int,
+    ) {
         val drawWidth = size
-        val drawHeight = ((size.toFloat() * watermarkEyeTextureHeight) / watermarkEyeTextureWidth).roundToInt().coerceAtLeast(1)
+        val drawHeight = ((size.toFloat() * textureHeight) / textureWidth).roundToInt().coerceAtLeast(1)
+        TextureFiltering.ensureSmooth(Minecraft.getInstance().textureManager, texture)
         val drawY = y + ((size - drawHeight) / 2)
         context.blit(
             RenderPipelines.GUI_TEXTURED,
-            watermarkEyeTexture,
+            texture,
             x,
             drawY,
             0f,
             0f,
             drawWidth,
             drawHeight,
-            watermarkEyeTextureWidth,
-            watermarkEyeTextureHeight,
-            watermarkEyeTextureWidth,
-            watermarkEyeTextureHeight,
-            withAlpha(VisualThemeSettings.neonBorder(), alpha),
+            textureWidth,
+            textureHeight,
+            textureWidth,
+            textureHeight,
+            tint,
         )
+    }
+
+    private fun drawFittedText(
+        context: GuiGraphics,
+        font: Font,
+        text: net.minecraft.network.chat.Component,
+        x: Int,
+        y: Int,
+        availableWidth: Int,
+        rowHeight: Int,
+        color: Int,
+    ) {
+        val rawWidth = font.width(text).coerceAtLeast(1)
+        val textScale = (availableWidth.toFloat() / rawWidth.toFloat()).coerceAtMost(1f).coerceAtLeast(0.35f)
+        val textY = y + ((rowHeight - (font.lineHeight * textScale)) / 2f).roundToInt()
+
+        context.pose().pushMatrix()
+        context.pose().translate(x.toFloat(), textY.toFloat())
+        context.pose().scale(textScale, textScale)
+        context.drawString(font, text, 0, 0, color, false)
+        context.pose().popMatrix()
     }
 
     private fun drawExpandedMusic(
@@ -499,8 +779,14 @@ class WatermarkHudRenderer(
         alpha: Float,
         slot: String,
     ) {
-        val backgroundColor = withAlpha(0xE40A0E18.toInt(), alpha)
-        val borderColor = withAlpha(0x72384766, alpha)
+        val backgroundColor = withAlpha(
+            if (VisualThemeSettings.isTransparentPreset()) VisualThemeSettings.hudInnerFill() else 0xE40A0E18.toInt(),
+            alpha,
+        )
+        val borderColor = withAlpha(
+            if (VisualThemeSettings.isTransparentPreset()) VisualThemeSettings.hudInnerBorder() else 0x72384766,
+            alpha,
+        )
         context.fill(x, y, x + size, y + size, backgroundColor)
 
         val texture = track.artworkTexture ?: displayedArtworkTexture
@@ -669,11 +955,21 @@ class WatermarkHudRenderer(
         hovered: Boolean,
     ) {
         val fill = if (hovered) {
-            if (VisualThemeSettings.isLightPreset()) 0xCFE6EEF8.toInt() else 0xAA1A2237.toInt()
+            if (VisualThemeSettings.isTransparentPreset()) 0x72242C3A
+            else if (VisualThemeSettings.isLightPreset()) 0xC8E8EEF7.toInt() else 0xA21A2230.toInt()
         } else {
-            if (VisualThemeSettings.isLightPreset()) 0xA9EDF3FA.toInt() else 0x7A121A2D
+            if (VisualThemeSettings.isTransparentPreset()) 0x621E2633
+            else if (VisualThemeSettings.isLightPreset()) 0xB8EEF4FB.toInt() else 0x86111924.toInt()
         }
-        val border = if (hovered) watermarkAccentColor() else if (VisualThemeSettings.isLightPreset()) 0x8DBFD1E4.toInt() else 0x4F3A4561
+        val border = if (hovered) {
+            watermarkAccentColor()
+        } else if (VisualThemeSettings.isTransparentPreset()) {
+            VisualThemeSettings.hudInnerBorder()
+        } else if (VisualThemeSettings.isLightPreset()) {
+            0x8DBFD1E4.toInt()
+        } else {
+            0x4F3A4561
+        }
 
         drawRoundedPanel(
             context,
@@ -697,65 +993,177 @@ class WatermarkHudRenderer(
         )
     }
 
-    private fun watermarkTextPrimaryColor(): Int = if (VisualThemeSettings.isLightPreset()) 0xFF111111.toInt() else WatermarkHudTheme.textPrimary
+    private fun watermarkTextPrimaryColor(): Int = if (VisualThemeSettings.isTransparentPreset()) VisualThemeSettings.textPrimary() else if (VisualThemeSettings.isLightPreset()) 0xFF111111.toInt() else WatermarkHudTheme.textPrimary
 
-    private fun watermarkTextSecondaryColor(): Int = if (VisualThemeSettings.isLightPreset()) 0xFF232323.toInt() else WatermarkHudTheme.textSecondary
+    private fun watermarkTextSecondaryColor(): Int = if (VisualThemeSettings.isTransparentPreset()) VisualThemeSettings.textSecondary() else if (VisualThemeSettings.isLightPreset()) 0xFF232323.toInt() else WatermarkHudTheme.textSecondary
 
-    private fun watermarkTextMutedColor(): Int = if (VisualThemeSettings.isLightPreset()) 0xFF363636.toInt() else WatermarkHudTheme.textMuted
+    private fun watermarkTextMutedColor(): Int = if (VisualThemeSettings.isTransparentPreset()) VisualThemeSettings.textMuted() else if (VisualThemeSettings.isLightPreset()) 0xFF363636.toInt() else WatermarkHudTheme.textMuted
 
-    private fun watermarkAccentColor(): Int = if (VisualThemeSettings.isLightPreset()) VisualThemeSettings.accentStrong() else WatermarkHudTheme.accent
+    private fun watermarkIconTintBase(forEye: Boolean = false): Int {
+        return when {
+            VisualThemeSettings.isLightPreset() -> 0xFF111111.toInt()
+            forEye -> VisualThemeSettings.neonBorder()
+            else -> VisualThemeSettings.textSecondary()
+        }
+    }
 
-    private fun watermarkProgressTrackColor(): Int = if (VisualThemeSettings.isLightPreset()) VisualThemeSettings.hudTrackFill() else WatermarkHudTheme.progressTrack
+    private fun watermarkAccentColor(): Int = if (VisualThemeSettings.isTransparentPreset() || VisualThemeSettings.isLightPreset()) VisualThemeSettings.accentStrong() else WatermarkHudTheme.accent
 
-    private fun watermarkProgressBorderColor(): Int = if (VisualThemeSettings.isLightPreset()) VisualThemeSettings.hudTrackBorder() else WatermarkHudTheme.progressBorder
+    private fun watermarkProgressTrackColor(): Int = if (VisualThemeSettings.isTransparentPreset() || VisualThemeSettings.isLightPreset()) VisualThemeSettings.hudTrackFill() else WatermarkHudTheme.progressTrack
+
+    private fun watermarkProgressBorderColor(): Int = if (VisualThemeSettings.isTransparentPreset() || VisualThemeSettings.isLightPreset()) VisualThemeSettings.hudTrackBorder() else WatermarkHudTheme.progressBorder
 
     private fun watermarkProgressFillColor(): Int {
         return if (VisualThemeSettings.isLightPreset()) {
             blendColor(0xFFF4F8FE.toInt(), WatermarkHudTheme.progressFill, 0.72f)
+        } else if (VisualThemeSettings.isTransparentPreset()) {
+            blendColor(0xFF202834.toInt(), WatermarkHudTheme.progressFill, 0.86f)
         } else {
             WatermarkHudTheme.progressFill
         }
     }
 
-    private fun watermarkShellStyle(expansion: Float): SdfPanelStyle {
-        val accentSync = ModuleStateStore.isSettingEnabled("${watermarkModuleId}:accent_sync")
-        val accentColor = if (accentSync) VisualThemeSettings.accentStrong() else watermarkAccentColor()
-        val neonColor = if (accentSync) VisualThemeSettings.neonBorder() else watermarkAccentColor()
+    private fun watermarkShellFillColor(): Int {
+        return VisualThemeSettings.hudShellFill()
+    }
 
+    private fun watermarkShellBorderColor(): Int {
+        return VisualThemeSettings.hudShellBorder()
+    }
+
+    private fun watermarkInnerFillColor(): Int {
+        return VisualThemeSettings.hudInnerFill()
+    }
+
+    private fun watermarkInnerBorderColor(): Int {
+        return VisualThemeSettings.hudInnerBorder()
+    }
+
+    private fun watermarkShadeTopColor(): Int {
+        return when {
+            VisualThemeSettings.isTransparentPreset() -> 0x04FFFFFF
+            else -> 0x00000000
+        }
+    }
+
+    private fun watermarkShadeBottomColor(): Int {
+        return when {
+            VisualThemeSettings.isTransparentPreset() -> 0x0C000000
+            else -> 0x00000000
+        }
+    }
+
+    private fun watermarkGlassBackdrop(): SdfBackdropStyle {
+        return SdfBackdropStyle(
+            blurRadiusPx = 5.2f,
+            tintMix = 0.60f,
+            opacity = 0.72f,
+        )
+    }
+
+    private fun watermarkShellNeonStyle(
+        lightAlpha: Int = 0x72,
+        darkAlpha: Int = 0xA2,
+        widthPx: Float = 0.95f,
+        softnessPx: Float = 4.5f,
+        lightStrength: Float = 0.34f,
+        darkStrength: Float = 0.54f,
+    ): SdfNeonBorderStyle {
+        if (!VisualThemeSettings.themeAllowsNeon()) {
+            return SdfNeonBorderStyle.NONE
+        }
+        return SdfNeonBorderStyle(
+            color = VisualThemeSettings.withAlpha(
+                VisualThemeSettings.neonBorder(),
+                if (VisualThemeSettings.isLightPreset()) lightAlpha else darkAlpha,
+            ),
+            widthPx = widthPx,
+            softnessPx = softnessPx,
+            strength = if (VisualThemeSettings.isLightPreset()) lightStrength else darkStrength,
+        )
+    }
+
+    private fun infoRowWidth(
+        segments: List<InfoSegment>,
+        rowPaddingX: Int,
+        separatorGap: Int,
+    ): Int {
+        if (segments.isEmpty()) return rowPaddingX * 2
+        return rowPaddingX * 2 +
+            segments.sumOf { it.slotWidth } +
+            ((segments.size - 1).coerceAtLeast(0) * ((separatorGap * 2) + 1))
+    }
+
+    private fun infoShellStyle(): SdfPanelStyle {
         return SdfPanelStyle(
-            baseColor = if (VisualThemeSettings.isLightPreset()) VisualThemeSettings.hudShellFill() else WatermarkHudTheme.panelFill,
-            borderColor = if (VisualThemeSettings.isLightPreset()) VisualThemeSettings.hudShellBorder() else WatermarkHudTheme.panelBorder,
+            baseColor = watermarkShellFillColor(),
+            borderColor = watermarkShellBorderColor(),
+            borderWidthPx = 1.0f,
+            radiusPx = 12f,
+            innerGlow = if (VisualThemeSettings.isTransparentPreset()) {
+                SdfGlowStyle(0xFFFFFFFF.toInt(), radiusPx = 10f, strength = 0.05f, opacity = 0.04f)
+            } else {
+                SdfGlowStyle.NONE
+            },
+            outerGlow = if (VisualThemeSettings.isTransparentPreset() || VisualThemeSettings.isLightPreset()) {
+                SdfGlowStyle.NONE
+            } else {
+                SdfGlowStyle(
+                    color = if (VisualThemeSettings.isLightPreset()) 0xFFD5DFEB.toInt() else 0xFF000000.toInt(),
+                    radiusPx = 12f,
+                    strength = if (VisualThemeSettings.isLightPreset()) 0.05f else 0.09f,
+                    opacity = if (VisualThemeSettings.isLightPreset()) 0.04f else 0.08f,
+                )
+            },
+            shade = SdfShadeStyle(watermarkShadeTopColor(), watermarkShadeBottomColor()),
+            neonBorder = watermarkShellNeonStyle(lightAlpha = 0x60, darkAlpha = 0x96, widthPx = 0.9f, softnessPx = 4f, lightStrength = 0.28f, darkStrength = 0.44f),
+            backdrop = if (VisualThemeSettings.isTransparentPreset()) watermarkGlassBackdrop() else SdfBackdropStyle.NONE,
+        )
+    }
+
+    private fun infoSeparatorColor(): Int {
+        return if (VisualThemeSettings.isLightPreset()) 0x70B3C1D3 else 0x506A7382
+    }
+
+    private fun watermarkShellStyle(expansion: Float): SdfPanelStyle {
+        return SdfPanelStyle(
+            baseColor = watermarkShellFillColor(),
+            borderColor = watermarkShellBorderColor(),
             borderWidthPx = 1.25f,
             radiusPx = WatermarkHudTheme.radius + (expansion * 2f),
-            innerGlow = SdfGlowStyle(
-                color = 0xFFFFFFFF.toInt(),
-                radiusPx = 13f + (expansion * 4f),
-                strength = 0.12f,
-                opacity = 0.10f,
-            ),
-            outerGlow = SdfGlowStyle(
-                color = if (VisualThemeSettings.isLightPreset()) VisualThemeSettings.themedAccentGlowBase(accentColor) else accentColor,
-                radiusPx = 18f + (expansion * 8f),
-                strength = if (VisualThemeSettings.isLightPreset()) 0.12f else 0.18f,
-                opacity = (if (VisualThemeSettings.isLightPreset()) 0.07f else 0.10f) + (expansion * if (VisualThemeSettings.isLightPreset()) 0.03f else 0.05f),
-            ),
+            innerGlow = if (VisualThemeSettings.isTransparentPreset()) {
+                SdfGlowStyle(
+                    color = 0xFFFFFFFF.toInt(),
+                    radiusPx = 13f + (expansion * 4f),
+                    strength = 0.12f,
+                    opacity = 0.10f,
+                )
+            } else {
+                SdfGlowStyle.NONE
+            },
+            outerGlow = if (VisualThemeSettings.isTransparentPreset() || VisualThemeSettings.isLightPreset()) {
+                SdfGlowStyle.NONE
+            } else {
+                SdfGlowStyle(
+                    color = if (VisualThemeSettings.isLightPreset()) 0xFFD5DFEB.toInt() else 0xFF000000.toInt(),
+                    radiusPx = 16f + (expansion * 5f),
+                    strength = if (VisualThemeSettings.isLightPreset()) 0.05f else 0.10f,
+                    opacity = if (VisualThemeSettings.isLightPreset()) 0.05f else 0.08f,
+                )
+            },
             shade = SdfShadeStyle(
-                topColor = if (VisualThemeSettings.isLightPreset()) 0x08FFFFFF else 0x12FFFFFF,
-                bottomColor = if (VisualThemeSettings.isLightPreset()) 0x0ED0DBEA else 0x28000000,
+                topColor = watermarkShadeTopColor(),
+                bottomColor = watermarkShadeBottomColor(),
             ),
-            neonBorder = SdfNeonBorderStyle(
-                color = VisualThemeSettings.withAlpha(neonColor, if (VisualThemeSettings.isLightPreset()) 0x84 else 0xC8),
-                widthPx = 1.05f,
-                softnessPx = 5.5f + (expansion * 1.5f),
-                strength = if (VisualThemeSettings.isLightPreset()) 0.42f else 0.76f,
-            ),
+            neonBorder = watermarkShellNeonStyle(widthPx = 1.0f, softnessPx = 5f, lightStrength = 0.36f, darkStrength = 0.58f),
+            backdrop = if (VisualThemeSettings.isTransparentPreset()) watermarkGlassBackdrop() else SdfBackdropStyle.NONE,
         )
     }
 
     private fun watermarkExpandedInnerStyle(alpha: Float, radiusPx: Float): SdfPanelStyle {
         return SdfPanelStyle(
-            baseColor = withAlpha(if (VisualThemeSettings.isLightPreset()) VisualThemeSettings.hudInnerFill() else WatermarkHudTheme.expandedInnerFill, alpha),
-            borderColor = withAlpha(if (VisualThemeSettings.isLightPreset()) VisualThemeSettings.hudInnerBorder() else WatermarkHudTheme.expandedInnerBorder, alpha),
+            baseColor = withAlpha(watermarkInnerFillColor(), alpha),
+            borderColor = withAlpha(watermarkInnerBorderColor(), alpha),
             borderWidthPx = 1f,
             radiusPx = radiusPx,
             innerGlow = SdfGlowStyle(
@@ -764,22 +1172,12 @@ class WatermarkHudRenderer(
                 strength = 0.10f,
                 opacity = 0.08f * alpha,
             ),
-            outerGlow = SdfGlowStyle(
-                color = if (VisualThemeSettings.isLightPreset()) 0xFFE4ECF6.toInt() else 0xFF000000.toInt(),
-                radiusPx = if (VisualThemeSettings.isLightPreset()) 12f else 0f,
-                strength = if (VisualThemeSettings.isLightPreset()) 0.06f else 0f,
-                opacity = if (VisualThemeSettings.isLightPreset()) 0.05f * alpha else 0f,
-            ),
+            outerGlow = SdfGlowStyle.NONE,
             shade = SdfShadeStyle(
-                topColor = withAlpha(if (VisualThemeSettings.isLightPreset()) 0x08FFFFFF else 0x14FFFFFF, alpha),
-                bottomColor = withAlpha(if (VisualThemeSettings.isLightPreset()) 0x0CD0DBEA else 0x14000000, alpha),
+                topColor = withAlpha(watermarkShadeTopColor(), alpha),
+                bottomColor = withAlpha(watermarkShadeBottomColor(), alpha),
             ),
-            neonBorder = SdfNeonBorderStyle(
-                color = VisualThemeSettings.withAlpha(VisualThemeSettings.neonBorder(), if (VisualThemeSettings.isLightPreset()) 0x30 else 0x52),
-                widthPx = 0.9f,
-                softnessPx = 4f,
-                strength = if (VisualThemeSettings.isLightPreset()) 0.18f else 0.30f,
-            ),
+            neonBorder = SdfNeonBorderStyle.NONE,
         )
     }
 
@@ -1208,13 +1606,22 @@ class WatermarkHudRenderer(
         return HudBounds(0, 0, width, height)
     }
 
-    private fun computeActualBounds(context: GuiGraphics, expansion: Float, scale: Float): HudBounds {
+    private fun computeActualBounds(context: GuiGraphics, client: Minecraft, expansion: Float, scale: Float): HudBounds {
         val localBounds = computeLocalBounds(expansion)
         val width = (localBounds.width * scale).roundToInt().coerceAtLeast(1)
         val height = (localBounds.height * scale).roundToInt().coerceAtLeast(1)
-        val x = (context.guiWidth() - width) / 2
-        val y = WatermarkHudTheme.anchorTop
-        return HudBounds(x, y, width, height)
+        val blockPositions = ensurePositions(client, scale)
+        val clamped = clampPosition(
+            client = client,
+            position = blockPositions.getValue(WatermarkHudBlockId.CLASSIC),
+            hudWidth = width,
+            hudHeight = height,
+        )
+        if (clamped != blockPositions[WatermarkHudBlockId.CLASSIC]) {
+            blockPositions[WatermarkHudBlockId.CLASSIC] = clamped
+        }
+        lastDraggableBounds[WatermarkHudBlockId.CLASSIC] = WatermarkHudBlockBounds(clamped.x, clamped.y, width, height)
+        return HudBounds(clamped.x, clamped.y, width, height)
     }
 
     private fun hudScale(): Float {
@@ -1223,6 +1630,67 @@ class WatermarkHudRenderer(
 
     private fun toLocalMouse(globalMouse: Int, origin: Int, scale: Float): Int {
         return ((globalMouse - origin) / scale).toInt()
+    }
+
+    private fun ensurePositions(client: Minecraft, scale: Float): MutableMap<WatermarkHudBlockId, WatermarkHudPosition> {
+        val existing = positions
+        if (existing != null) return existing
+
+        val classicWidth = scaled(WatermarkHudTheme.compactWidth, scale)
+        val classicHeight = scaled(WatermarkHudTheme.compactHeight, scale)
+        val topWidth = scaled(infoRowWidth(
+            listOf(
+                InfoSegment("", InfoLayout.topSlotWidths[0]),
+                InfoSegment("", InfoLayout.topSlotWidths[1]),
+                InfoSegment("", InfoLayout.topSlotWidths[2]),
+                InfoSegment("", InfoLayout.topSlotWidths[3]),
+            ),
+            InfoLayout.rowPaddingX,
+            InfoLayout.separatorGap,
+        ), scale)
+        val bottomWidth = scaled(infoRowWidth(
+            listOf(
+                InfoSegment("", InfoLayout.bottomSlotWidths[0]),
+                InfoSegment("", InfoLayout.bottomSlotWidths[1]),
+                InfoSegment("", InfoLayout.bottomSlotWidths[2]),
+                InfoSegment("", InfoLayout.bottomSlotWidths[3]),
+            ),
+            InfoLayout.rowPaddingX,
+            InfoLayout.separatorGap,
+        ), scale)
+        val rowHeight = scaled(InfoLayout.rowHeight, scale)
+
+        val defaults = mapOf(
+            WatermarkHudBlockId.CLASSIC to WatermarkHudPosition(
+                x = ((client.window.guiScaledWidth - classicWidth) / 2).coerceAtLeast(0),
+                y = WatermarkHudTheme.anchorTop,
+            ),
+            WatermarkHudBlockId.INFO_TOP to WatermarkHudPosition(
+                x = ((client.window.guiScaledWidth - topWidth) / 2).coerceAtLeast(0),
+                y = WatermarkHudTheme.anchorTop,
+            ),
+            WatermarkHudBlockId.INFO_BOTTOM to WatermarkHudPosition(
+                x = ((client.window.guiScaledWidth - bottomWidth) / 2).coerceAtLeast(0),
+                y = WatermarkHudTheme.anchorTop + rowHeight + InfoLayout.rowGap,
+            ),
+        )
+        return WatermarkHudPositionStore.load(defaults).also { positions = it }
+    }
+
+    private fun clampPosition(
+        client: Minecraft,
+        position: WatermarkHudPosition,
+        hudWidth: Int,
+        hudHeight: Int,
+    ): WatermarkHudPosition {
+        return WatermarkHudPosition(
+            x = position.x.coerceIn(0, (client.window.guiScaledWidth - hudWidth).coerceAtLeast(0)),
+            y = position.y.coerceIn(0, (client.window.guiScaledHeight - hudHeight).coerceAtLeast(0)),
+        )
+    }
+
+    private fun scaled(value: Int, scale: Float): Int {
+        return (value * scale).roundToInt().coerceAtLeast(1)
     }
 
     private fun resolvePing(client: Minecraft): Int {

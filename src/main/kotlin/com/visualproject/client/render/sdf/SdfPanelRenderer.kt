@@ -3,6 +3,7 @@ package com.visualproject.client.render.sdf
 import com.mojang.blaze3d.ProjectionType
 import com.mojang.blaze3d.buffers.GpuBuffer
 import com.mojang.blaze3d.systems.RenderSystem
+import com.visualproject.client.VisualThemeSettings
 import net.minecraft.client.Minecraft
 import net.minecraft.client.gui.GuiGraphics
 import net.minecraft.client.renderer.CachedOrthoProjectionMatrixBuffer
@@ -50,6 +51,7 @@ object SdfPanelRenderer {
             }
             return
         }
+        val resolvedStyle = resolveStyle(style, width, height)
         val pipeline = SdfShaderRegistry.panelPipeline ?: run {
             if (!loggedPipelineUnavailable) {
                 logger.warn("SDF panel draw skipped: pipeline missing after ensureReady")
@@ -59,7 +61,7 @@ object SdfPanelRenderer {
         }
 
         val device = RenderSystem.getDevice()
-        val renderPadding = computeRenderPadding(style)
+        val renderPadding = computeRenderPadding(resolvedStyle)
         val resolvedClip = clipRect ?: ClipRect(
             x - renderPadding,
             y - renderPadding,
@@ -85,7 +87,7 @@ object SdfPanelRenderer {
                 resolvedClip.y.toFloat(),
                 resolvedClip.width.toFloat(),
                 resolvedClip.height.toFloat(),
-                style,
+                resolvedStyle,
             ),
         )
         val modelViewMat = Matrix4f()
@@ -118,6 +120,8 @@ object SdfPanelRenderer {
                 return
             }
             val depthView = RenderSystem.outputDepthTextureOverride ?: if (target.useDepth) target.depthTextureView else null
+            val backdropTextureView = BackdropBlurRenderer.textureView()
+            val backdropSampler = BackdropBlurRenderer.sampler()
             val encoder = device.createCommandEncoder()
             val renderPass = if (depthView != null) {
                 encoder.createRenderPass(
@@ -134,11 +138,16 @@ object SdfPanelRenderer {
                     OptionalInt.empty(),
                 )
             }
-            renderPass.use { renderPass ->
+            try {
                 renderPass.setPipeline(pipeline)
                 RenderSystem.bindDefaultUniforms(renderPass)
                 renderPass.setUniform("DynamicTransforms", dynamicTransforms)
                 renderPass.setUniform("PanelStyle", uniformBuffer)
+                renderPass.bindTexture(
+                    "BackdropTexture",
+                    backdropTextureView,
+                    backdropSampler,
+                )
                 renderPass.setVertexBuffer(0, vertexBuffer)
                 renderPass.draw(0, 4)
                 if (!loggedDrawSubmitted) {
@@ -152,6 +161,8 @@ object SdfPanelRenderer {
                     )
                     loggedDrawSubmitted = true
                 }
+            } finally {
+                renderPass.close()
             }
         } finally {
             RenderSystem.restoreProjectionMatrix()
@@ -159,6 +170,32 @@ object SdfPanelRenderer {
             vertexBuffer.close()
             context.renderDeferredElements()
         }
+    }
+
+    private fun resolveStyle(style: SdfPanelStyle, width: Int, height: Int): SdfPanelStyle {
+        if (!VisualThemeSettings.isTransparentPreset()) {
+            return style
+        }
+
+        val backdrop = if (style.backdrop.enabled()) {
+            style.backdrop
+        } else if (shouldAutoEnableBackdrop(style, width, height)) {
+            VisualThemeSettings.defaultGlassBackdrop()
+        } else {
+            SdfBackdropStyle.NONE
+        }
+
+        return style.copy(
+            outerGlow = SdfGlowStyle(0x00000000, 0f, 0f, 0f),
+            neonBorder = SdfNeonBorderStyle.NONE,
+            backdrop = backdrop,
+        )
+    }
+
+    private fun shouldAutoEnableBackdrop(style: SdfPanelStyle, width: Int, height: Int): Boolean {
+        val alpha = (style.baseColor ushr 24) and 0xFF
+        val largeEnough = (width >= 72 && height >= 18) || (width >= 40 && height >= 40) || height >= 72
+        return alpha in 1..239 && style.radiusPx >= 6f && style.borderWidthPx > 0f && largeEnough
     }
 
     private fun computeRenderPadding(style: SdfPanelStyle): Int {

@@ -3,17 +3,17 @@ package com.visualproject.client.hud.watermark
 object WatermarkHudTheme {
     const val anchorTop = 8
 
-    const val compactWidth = 252
-    const val compactHeight = 36
-    const val expandedWidth = 286
-    const val expandedHeight = 74
+    const val compactWidth = 220
+    const val compactHeight = 32
+    const val expandedWidth = 250
+    const val expandedHeight = 66
 
-    const val radius = 16
-    const val paddingX = 9
-    const val compactArtworkSize = 24
-    const val expandedPadding = 9
-    const val expandedArtworkSize = 40
-    const val expandedControlSize = 13
+    const val radius = 14
+    const val paddingX = 8
+    const val compactArtworkSize = 20
+    const val expandedPadding = 8
+    const val expandedArtworkSize = 34
+    const val expandedControlSize = 11
     const val expandedControlGap = 4
 
     const val panelFill = 0xFF080B14.toInt()

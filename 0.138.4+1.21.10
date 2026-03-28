@@ -1,0 +1,60 @@
+
+G:\.visual project>if "Windows_NT" == "Windows_NT" setlocal
+
+G:\.visual project>set DIRNAME=G:\.visual project\ 
+
+G:\.visual project>if "G:\.visual project\" == "" set DIRNAME=. 
+
+G:\.visual project>set APP_BASE_NAME=gradlew 
+
+G:\.visual project>set APP_HOME=G:\.visual project\ 
+
+G:\.visual project>for %i in ("G:\.visual project\") do set APP_HOME=%~fi 
+
+G:\.visual project>set APP_HOME=G:\.visual project\ 
+
+G:\.visual project>set DEFAULT_JVM_OPTS="-Xmx64m" "-Xms64m" 
+
+G:\.visual project>if defined JAVA_HOME goto findJavaFromJavaHome 
+
+G:\.visual project>set JAVA_EXE=java.exe 
+
+G:\.visual project>java.exe -version  1>NUL 2>&1 
+
+G:\.visual project>if 0 EQU 0 goto execute 
+
+G:\.visual project>"java.exe" "-Xmx64m" "-Xms64m"   "-Dorg.gradle.appname=gradlew" -jar "G:\.visual project\\gradle\wrapper\gradle-wrapper.jar" build --no-daemon -Pmod_version=1.0.0-1.21.10 -Pminecraft_dependency=~1.21.10 -Pfabric_api_dependency= 
+To honour the JVM settings for this build a single-use Daemon process will be forked. For more on this, please refer to https://docs.gradle.org/9.3.0/userguide/gradle_daemon.html#sec:disabling_the_daemon in the Gradle documentation.
+Daemon will be stopped at the end of the build 
+
+> Configure project :
+Fabric Loom: 1.15.5
+
+> Task :checkKotlinGradlePluginConfigurationErrors SKIPPED
+> Task :compileKotlin UP-TO-DATE
+> Task :compileJava UP-TO-DATE
+> Task :publishNativeMediaBridge UP-TO-DATE
+> Task :stageNativeMediaBridge UP-TO-DATE
+> Task :processResources
+> Task :classes
+> Task :jar
+> Task :processIncludeJars UP-TO-DATE
+> Task :sourcesJar
+> Task :compileTestKotlin NO-SOURCE
+> Task :compileTestJava NO-SOURCE
+> Task :processTestResources NO-SOURCE
+> Task :testClasses UP-TO-DATE
+> Task :test NO-SOURCE
+> Task :validateAccessWidener NO-SOURCE
+> Task :check UP-TO-DATE
+> Task :remapSourcesJar
+> Task :remapJar
+> Task :assemble
+> Task :build
+
+BUILD SUCCESSFUL in 19s
+10 actionable tasks: 5 executed, 5 up-to-date
+
+G:\.visual project>if 0 EQU 0 goto mainEnd 
+
+G:\.visual project>if "Windows_NT" == "Windows_NT" endlocal

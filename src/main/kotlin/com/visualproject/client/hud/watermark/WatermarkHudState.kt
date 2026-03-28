@@ -17,6 +17,34 @@ data class HudBounds(
     }
 }
 
+enum class WatermarkHudBlockId(val key: String) {
+    CLASSIC("classic"),
+    INFO_TOP("info_top"),
+    INFO_BOTTOM("info_bottom");
+
+    companion object {
+        fun fromKey(raw: String?): WatermarkHudBlockId? {
+            return entries.firstOrNull { it.key.equals(raw?.trim(), ignoreCase = true) }
+        }
+    }
+}
+
+data class WatermarkHudPosition(
+    val x: Int,
+    val y: Int,
+)
+
+data class WatermarkHudBlockBounds(
+    val x: Int,
+    val y: Int,
+    val width: Int,
+    val height: Int,
+) {
+    fun contains(mouseX: Int, mouseY: Int): Boolean {
+        return mouseX in x until (x + width) && mouseY in y until (y + height)
+    }
+}
+
 enum class WatermarkMode {
     DEFAULT,
     MUSIC,

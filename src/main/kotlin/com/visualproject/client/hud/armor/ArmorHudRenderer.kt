@@ -2,6 +2,7 @@ package com.visualproject.client.hud.armor
 
 import com.visualproject.client.ModuleStateStore
 import com.visualproject.client.VisualThemeSettings
+import com.visualproject.client.render.sdf.BackdropBlurRenderer
 import com.visualproject.client.render.sdf.SdfGlowStyle
 import com.visualproject.client.render.sdf.SdfNeonBorderStyle
 import com.visualproject.client.render.sdf.SdfPanelRenderer
@@ -30,6 +31,8 @@ internal class ArmorHudRenderer {
     private object Layout {
         const val shellWidth = 37
         const val shellHeight = 95
+        const val horizontalShellWidth = shellHeight
+        const val horizontalShellHeight = shellWidth
         const val shellRadius = 18f
         const val padding = 8
         const val rowHeight = 16
@@ -38,6 +41,7 @@ internal class ArmorHudRenderer {
         const val slotRadius = 6f
         const val barWidth = 4
         const val barGap = 1
+        const val horizontalBarGap = 0
         const val anchorX = 8
     }
 
@@ -55,13 +59,16 @@ internal class ArmorHudRenderer {
         if (client.options.hideGui) return
         if (client.screen != null && client.screen !is ChatScreen) return
 
+        val layoutType = ArmorHudModule.layoutType()
         val scale = hudScale()
-        val actualWidth = scaled(Layout.shellWidth, scale)
-        val actualHeight = scaled(Layout.shellHeight, scale)
+        val baseWidth = shellWidth(layoutType)
+        val baseHeight = shellHeight(layoutType)
+        val actualWidth = scaled(baseWidth, scale)
+        val actualHeight = scaled(baseHeight, scale)
 
         val state = ensureDragState(client, actualWidth, actualHeight)
-        adjustPositionForScaleChange(client, state, Layout.shellWidth, Layout.shellHeight, scale)
-        clampToScreen(client, state)
+        adjustPositionForScaleChange(client, state, baseWidth, baseHeight, scale)
+        clampToScreen(client, state, layoutType)
         val bounds = ArmorHudBounds(
             x = state.position.x,
             y = state.position.y,
@@ -74,6 +81,7 @@ internal class ArmorHudRenderer {
         val slotBackgroundEnabled = ModuleStateStore.isSettingEnabled("${moduleId}:slot_background")
         val glowColor = if (accentSync) VisualThemeSettings.themedAccentGlowBase() else VisualThemeSettings.themedFallbackGlow(0xFF8A71FF.toInt())
         val neonColor = if (accentSync) VisualThemeSettings.neonBorder() else 0xFF8A71FF.toInt()
+        BackdropBlurRenderer.captureBackdrop()
 
         context.pose().pushMatrix()
         context.pose().translate(bounds.x.toFloat(), bounds.y.toFloat())
@@ -83,8 +91,8 @@ internal class ArmorHudRenderer {
             context = context,
             x = 0,
             y = 0,
-            width = Layout.shellWidth,
-            height = Layout.shellHeight,
+            width = baseWidth,
+            height = baseHeight,
             style = shellStyle(glowColor, neonColor),
         )
 
@@ -95,16 +103,35 @@ internal class ArmorHudRenderer {
             ArmorRow("B", player.getItemBySlot(EquipmentSlot.FEET)),
         )
 
-        rows.forEachIndexed { index, row ->
-            val rowY = Layout.padding + (index * (Layout.rowHeight + Layout.rowGap))
-            drawArmorRow(
-                context = context,
-                font = client.font,
-                row = row,
-                x = Layout.padding,
-                y = rowY,
-                slotBackgroundEnabled = slotBackgroundEnabled,
-            )
+        when (layoutType) {
+            ArmorHudModule.LayoutType.VERTICAL -> {
+                rows.forEachIndexed { index, row ->
+                    val rowY = Layout.padding + (index * (Layout.rowHeight + Layout.rowGap))
+                    drawArmorRow(
+                        context = context,
+                        font = client.font,
+                        row = row,
+                        x = Layout.padding,
+                        y = rowY,
+                        slotBackgroundEnabled = slotBackgroundEnabled,
+                    )
+                }
+            }
+            ArmorHudModule.LayoutType.RIGHT_90 -> {
+                val contentX = ((baseWidth - horizontalContentWidth()) / 2).coerceAtLeast(0)
+                val rowY = ((baseHeight - Layout.slotSize) / 2).coerceAtLeast(0)
+                rows.forEachIndexed { index, row ->
+                    val columnX = contentX + (index * horizontalColumnWidth())
+                    drawArmorColumn(
+                        context = context,
+                        font = client.font,
+                        row = row,
+                        x = columnX,
+                        y = rowY,
+                        slotBackgroundEnabled = slotBackgroundEnabled,
+                    )
+                }
+            }
         }
 
         context.pose().popMatrix()
@@ -119,14 +146,15 @@ internal class ArmorHudRenderer {
         if (screen !is ChatScreen) return consumed
         if (mouseEvent.button() != 0) return consumed
 
-        val state = ensureDragState(client, scaled(Layout.shellWidth, hudScale()), scaled(Layout.shellHeight, hudScale()))
-        clampToScreen(client, state)
+        val layoutType = ArmorHudModule.layoutType()
+        val state = ensureDragState(client, scaled(shellWidth(layoutType), hudScale()), scaled(shellHeight(layoutType), hudScale()))
+        clampToScreen(client, state, layoutType)
 
         val bounds = lastBounds ?: ArmorHudBounds(
             x = state.position.x,
             y = state.position.y,
-            width = scaled(Layout.shellWidth, hudScale()),
-            height = scaled(Layout.shellHeight, hudScale()),
+            width = scaled(shellWidth(layoutType), hudScale()),
+            height = scaled(shellHeight(layoutType), hudScale()),
         )
         val handled = state.beginDrag(bounds, mouseEvent.x().toInt(), mouseEvent.y().toInt())
         return consumed || handled
@@ -144,7 +172,8 @@ internal class ArmorHudRenderer {
         if (mouseEvent.button() != 0) return consumed
 
         val scale = hudScale()
-        val state = ensureDragState(client, scaled(Layout.shellWidth, scale), scaled(Layout.shellHeight, scale))
+        val layoutType = ArmorHudModule.layoutType()
+        val state = ensureDragState(client, scaled(shellWidth(layoutType), scale), scaled(shellHeight(layoutType), scale))
         if (!state.dragging) return consumed
 
         state.dragTo(
@@ -152,8 +181,8 @@ internal class ArmorHudRenderer {
             mouseY = mouseEvent.y().toInt(),
             screenWidth = client.window.guiScaledWidth,
             screenHeight = client.window.guiScaledHeight,
-            hudWidth = scaled(Layout.shellWidth, scale),
-            hudHeight = scaled(Layout.shellHeight, scale),
+            hudWidth = scaled(shellWidth(layoutType), scale),
+            hudHeight = scaled(shellHeight(layoutType), scale),
         )
         return true
     }
@@ -198,7 +227,7 @@ internal class ArmorHudRenderer {
                 vText(row.label),
                 x + ((Layout.slotSize - labelWidth) / 2),
                 y + ((Layout.slotSize - font.lineHeight) / 2),
-                if (VisualThemeSettings.isLightPreset()) VisualThemeSettings.textSecondary() else 0xFFE8B6C4.toInt(),
+                if (VisualThemeSettings.isTransparentPreset() || VisualThemeSettings.isLightPreset()) VisualThemeSettings.textSecondary() else 0xFFE8B6C4.toInt(),
                 false,
             )
         } else {
@@ -207,7 +236,45 @@ internal class ArmorHudRenderer {
             context.renderItem(row.stack, itemX, itemY)
         }
 
-        val barX = x + Layout.slotSize + Layout.barGap
+        val barX = x + Layout.slotSize + Layout.horizontalBarGap
+        val ratio = durabilityRatio(row.stack)
+        drawDurabilityBar(context, barX, y, ratio)
+    }
+
+    private fun drawArmorColumn(
+        context: GuiGraphics,
+        font: Font,
+        row: ArmorRow,
+        x: Int,
+        y: Int,
+        slotBackgroundEnabled: Boolean,
+    ) {
+        SdfPanelRenderer.draw(
+            context = context,
+            x = x,
+            y = y,
+            width = Layout.slotSize,
+            height = Layout.slotSize,
+            style = slotStyle(slotBackgroundEnabled),
+        )
+
+        if (row.stack.isEmpty) {
+            val labelWidth = font.width(vText(row.label))
+            context.drawString(
+                font,
+                vText(row.label),
+                x + ((Layout.slotSize - labelWidth) / 2),
+                y + ((Layout.slotSize - font.lineHeight) / 2),
+                if (VisualThemeSettings.isTransparentPreset() || VisualThemeSettings.isLightPreset()) VisualThemeSettings.textSecondary() else 0xFFE8B6C4.toInt(),
+                false,
+            )
+        } else {
+            val itemX = x + ((Layout.slotSize - 16) / 2)
+            val itemY = y + ((Layout.slotSize - 16) / 2)
+            context.renderItem(row.stack, itemX, itemY)
+        }
+
+        val barX = x + Layout.slotSize + Layout.horizontalBarGap
         val ratio = durabilityRatio(row.stack)
         drawDurabilityBar(context, barX, y, ratio)
     }
@@ -236,6 +303,7 @@ internal class ArmorHudRenderer {
         val fillColor = durabilityColor(clampedRatio)
         val fillX = 1
         val fillWidth = (Layout.barWidth - 2).coerceAtLeast(1)
+        val allowGlow = !VisualThemeSettings.isTransparentPreset()
 
         val outerGlowColor = blendColor(0x00000000, fillColor, 0.14f)
         val innerGlowColor = blendColor(0x00000000, fillColor, 0.24f)
@@ -246,24 +314,26 @@ internal class ArmorHudRenderer {
         val outerGlowHeight = (outerGlowBottom - outerGlowTop).coerceAtLeast(1)
         val innerGlowHeight = (innerGlowBottom - innerGlowTop).coerceAtLeast(1)
 
-        fillRoundedRect(
-            context,
-            fillX - 1,
-            outerGlowTop,
-            fillWidth + 2,
-            outerGlowHeight,
-            4,
-            outerGlowColor,
-        )
-        fillRoundedRect(
-            context,
-            fillX,
-            innerGlowTop,
-            fillWidth,
-            innerGlowHeight,
-            3,
-            innerGlowColor,
-        )
+        if (allowGlow) {
+            fillRoundedRect(
+                context,
+                fillX - 1,
+                outerGlowTop,
+                fillWidth + 2,
+                outerGlowHeight,
+                4,
+                outerGlowColor,
+            )
+            fillRoundedRect(
+                context,
+                fillX,
+                innerGlowTop,
+                fillWidth,
+                innerGlowHeight,
+                3,
+                innerGlowColor,
+            )
+        }
         fillRoundedRect(
             context,
             fillX,
@@ -286,6 +356,71 @@ internal class ArmorHudRenderer {
         }
 
         context.pose().popMatrix()
+    }
+
+    private fun drawDurabilityBarHorizontal(
+        context: GuiGraphics,
+        x: Int,
+        y: Int,
+        ratio: Float,
+    ) {
+        if (ratio <= 0f) return
+
+        val clampedRatio = ratio.coerceIn(0f, 1f)
+        val usableWidth = (Layout.slotSize - 4).coerceAtLeast(1)
+        val fillWidth = ceil(usableWidth * clampedRatio).toInt().coerceAtLeast(1)
+        val fillX = x + 2
+        val fillY = y
+        val fillColor = durabilityColor(clampedRatio)
+        val allowGlow = !VisualThemeSettings.isTransparentPreset()
+
+        val outerGlowColor = blendColor(0x00000000, fillColor, 0.14f)
+        val innerGlowColor = blendColor(0x00000000, fillColor, 0.24f)
+        val outerGlowX = (fillX - 1).coerceAtLeast(x)
+        val innerGlowX = fillX
+        val outerGlowWidth = (fillWidth + 2).coerceAtMost(Layout.slotSize - (outerGlowX - x))
+        val innerGlowWidth = fillWidth.coerceAtMost(Layout.slotSize - (innerGlowX - x))
+
+        if (allowGlow) {
+            fillRoundedRect(
+                context,
+                outerGlowX,
+                fillY - 1,
+                outerGlowWidth,
+                Layout.barWidth + 2,
+                4,
+                outerGlowColor,
+            )
+            fillRoundedRect(
+                context,
+                innerGlowX,
+                fillY,
+                innerGlowWidth,
+                Layout.barWidth,
+                3,
+                innerGlowColor,
+            )
+        }
+        fillRoundedRect(
+            context,
+            fillX,
+            fillY,
+            fillWidth,
+            Layout.barWidth,
+            3,
+            fillColor,
+        )
+        if (fillWidth > 2) {
+            fillRoundedRect(
+                context,
+                fillX,
+                fillY,
+                fillWidth,
+                1,
+                1,
+                blendColor(fillColor, 0xFFFFFFFF.toInt(), 0.10f),
+            )
+        }
     }
 
     private fun durabilityColor(ratio: Float): Int {
@@ -314,12 +449,21 @@ internal class ArmorHudRenderer {
             borderColor = VisualThemeSettings.hudShellBorder(),
             borderWidthPx = 1.1f,
             radiusPx = Layout.shellRadius,
-            innerGlow = SdfGlowStyle(0xFFFFFFFF.toInt(), radiusPx = 12f, strength = 0.05f, opacity = 0.03f),
-            outerGlow = SdfGlowStyle(glowColor, radiusPx = 20f, strength = if (VisualThemeSettings.isLightPreset()) 0.14f else 0.18f, opacity = if (VisualThemeSettings.isLightPreset()) 0.07f else 0.08f),
-            shade = SdfShadeStyle(
-                if (VisualThemeSettings.isLightPreset()) 0x08FFFFFF else 0x0AFFFFFF,
-                if (VisualThemeSettings.isLightPreset()) 0x0ED0DBEA else 0x16000000,
-            ),
+            innerGlow = if (VisualThemeSettings.isTransparentPreset()) {
+                SdfGlowStyle(0xFFFFFFFF.toInt(), radiusPx = 12f, strength = 0.05f, opacity = 0.03f)
+            } else {
+                SdfGlowStyle.NONE
+            },
+            outerGlow = if (VisualThemeSettings.isLightPreset()) {
+                SdfGlowStyle.NONE
+            } else {
+                SdfGlowStyle(glowColor, radiusPx = 20f, strength = 0.18f, opacity = 0.08f)
+            },
+            shade = if (VisualThemeSettings.isTransparentPreset()) {
+                SdfShadeStyle(0x04FFFFFF, 0x10000000)
+            } else {
+                SdfShadeStyle(0x00000000, 0x00000000)
+            },
             neonBorder = SdfNeonBorderStyle(
                 color = VisualThemeSettings.withAlpha(neonColor, if (VisualThemeSettings.isLightPreset()) 0x78 else 0xB2),
                 widthPx = 1.0f,
@@ -332,23 +476,28 @@ internal class ArmorHudRenderer {
     private fun slotStyle(enabled: Boolean): SdfPanelStyle {
         return SdfPanelStyle(
             baseColor = if (enabled) {
-                if (VisualThemeSettings.isLightPreset()) VisualThemeSettings.hudIconFill() else 0xFF8A0922.toInt()
+                if (VisualThemeSettings.isTransparentPreset() || VisualThemeSettings.isLightPreset()) VisualThemeSettings.hudIconFill() else 0xFF8A0922.toInt()
             } else {
-                0x00000000
+                if (VisualThemeSettings.isTransparentPreset()) 0x00000000 else VisualThemeSettings.hudTrackFill()
             },
             borderColor = if (enabled) {
-                if (VisualThemeSettings.isLightPreset()) VisualThemeSettings.hudIconBorder() else 0xFF4B0613.toInt()
+                if (VisualThemeSettings.isTransparentPreset() || VisualThemeSettings.isLightPreset()) VisualThemeSettings.hudIconBorder() else 0xFF4B0613.toInt()
             } else {
-                0x00000000
+                if (VisualThemeSettings.isTransparentPreset()) 0x00000000 else VisualThemeSettings.hudTrackBorder()
             },
             borderWidthPx = if (enabled) 1f else 0f,
             radiusPx = Layout.slotRadius,
-            innerGlow = SdfGlowStyle(0xFFFFFFFF.toInt(), radiusPx = 4f, strength = if (enabled) 0.04f else 0f, opacity = if (enabled) 0.03f else 0f),
+            innerGlow = if (enabled && VisualThemeSettings.isTransparentPreset()) {
+                SdfGlowStyle(0xFFFFFFFF.toInt(), radiusPx = 4f, strength = 0.04f, opacity = 0.03f)
+            } else {
+                SdfGlowStyle.NONE
+            },
             outerGlow = SdfGlowStyle(0x00000000, radiusPx = 0f, strength = 0f, opacity = 0f),
-            shade = SdfShadeStyle(
-                if (!enabled) 0x00000000 else if (VisualThemeSettings.isLightPreset()) 0x08FFFFFF else 0x12000000,
-                if (!enabled) 0x00000000 else if (VisualThemeSettings.isLightPreset()) 0x0CCFDCED else 0x22000000,
-            ),
+            shade = if (enabled && VisualThemeSettings.isTransparentPreset()) {
+                SdfShadeStyle(0x04FFFFFF, 0x10000000)
+            } else {
+                SdfShadeStyle(0x00000000, 0x00000000)
+            },
         )
     }
 
@@ -365,14 +514,14 @@ internal class ArmorHudRenderer {
         }
     }
 
-    private fun clampToScreen(client: Minecraft, state: ArmorHudDragState) {
+    private fun clampToScreen(client: Minecraft, state: ArmorHudDragState, layoutType: ArmorHudModule.LayoutType) {
         state.setPositionClamped(
             x = state.position.x,
             y = state.position.y,
             screenWidth = client.window.guiScaledWidth,
             screenHeight = client.window.guiScaledHeight,
-            hudWidth = scaled(Layout.shellWidth, hudScale()),
-            hudHeight = scaled(Layout.shellHeight, hudScale()),
+            hudWidth = scaled(shellWidth(layoutType), hudScale()),
+            hudHeight = scaled(shellHeight(layoutType), hudScale()),
         )
     }
 
@@ -412,6 +561,28 @@ internal class ArmorHudRenderer {
 
     private fun hudScale(): Float {
         return ModuleStateStore.getNumberSetting("${moduleId}:size", 1.0f).coerceIn(0.5f, 3.0f)
+    }
+
+    private fun shellWidth(layoutType: ArmorHudModule.LayoutType): Int {
+        return when (layoutType) {
+            ArmorHudModule.LayoutType.VERTICAL -> Layout.shellWidth
+            ArmorHudModule.LayoutType.RIGHT_90 -> Layout.horizontalShellWidth
+        }
+    }
+
+    private fun shellHeight(layoutType: ArmorHudModule.LayoutType): Int {
+        return when (layoutType) {
+            ArmorHudModule.LayoutType.VERTICAL -> Layout.shellHeight
+            ArmorHudModule.LayoutType.RIGHT_90 -> Layout.horizontalShellHeight
+        }
+    }
+
+    private fun horizontalColumnWidth(): Int {
+        return Layout.slotSize + Layout.horizontalBarGap + Layout.barWidth
+    }
+
+    private fun horizontalContentWidth(): Int {
+        return horizontalColumnWidth() * 4
     }
 
     private fun scaled(value: Int, scale: Float): Int {

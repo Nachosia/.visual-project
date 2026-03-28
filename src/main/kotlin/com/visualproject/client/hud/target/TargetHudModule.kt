@@ -9,11 +9,13 @@ import net.minecraft.client.Minecraft
 object TargetHudModule {
 
     private const val moduleId = "target_hud"
+    const val lifetimeSecondsKey = "target_hud:lifetime_seconds"
     private val renderer = TargetHudRenderer()
 
     fun initialize() {
         ModuleStateStore.ensureModule(moduleId, defaultEnabled = false)
         ModuleStateStore.ensureNumberSetting("${moduleId}:size", 1.0f)
+        ModuleStateStore.ensureNumberSetting(lifetimeSecondsKey, 0.0f)
 
         HudRenderCallback.EVENT.register(HudRenderCallback { context, deltaTracker ->
             if (!ModuleStateStore.isEnabled(moduleId)) return@HudRenderCallback

@@ -8,9 +8,22 @@ import net.minecraft.client.Minecraft
 
 object ItemBarHudModule {
 
+    enum class LayoutType(val id: String, val label: String) {
+        PANEL("panel", "Panel"),
+        COMPACT("compact", "Compact"),
+        VERTICAL("vertical", "Vertical");
+
+        companion object {
+            fun fromId(raw: String): LayoutType {
+                return entries.firstOrNull { it.id.equals(raw.trim(), ignoreCase = true) } ?: PANEL
+            }
+        }
+    }
+
     const val moduleId = "item_bar_hud"
     const val hideVanillaHotbarKey = "${moduleId}:hide_vanilla_hotbar"
     const val showPlayerStatusKey = "${moduleId}:show_player_status"
+    const val layoutTypeKey = "${moduleId}:layout_type"
 
     private val renderer = ItemBarHudRenderer()
 
@@ -20,6 +33,7 @@ object ItemBarHudModule {
         ModuleStateStore.ensureSetting("${moduleId}:accent_sync", defaultValue = true)
         ModuleStateStore.ensureSetting(hideVanillaHotbarKey, defaultValue = true)
         ModuleStateStore.ensureSetting(showPlayerStatusKey, defaultValue = true)
+        ModuleStateStore.ensureTextSetting(layoutTypeKey, LayoutType.PANEL.id)
         ModuleStateStore.ensureNumberSetting("${moduleId}:size", 1.0f)
 
         HudRenderCallback.EVENT.register(HudRenderCallback { context, _ ->
@@ -68,5 +82,10 @@ object ItemBarHudModule {
     fun shouldHideVanillaStatusBars(): Boolean {
         return shouldHideVanillaHotbar() &&
             ModuleStateStore.isSettingEnabled(showPlayerStatusKey)
+    }
+
+    @JvmStatic
+    fun layoutType(): LayoutType {
+        return LayoutType.fromId(ModuleStateStore.getTextSetting(layoutTypeKey, LayoutType.PANEL.id))
     }
 }
