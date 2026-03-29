@@ -3,6 +3,7 @@ package com.visualproject.client.hud.music
 import com.mojang.blaze3d.platform.NativeImage
 import com.visualproject.client.ModuleStateStore
 import com.visualproject.client.VisualThemeSettings
+import com.visualproject.client.hud.HudOcclusionRegistry
 import com.visualproject.client.hud.shared.SharedMusicHudRuntime
 import com.visualproject.client.hud.watermark.WatermarkMusicProvider
 import com.visualproject.client.hud.watermark.WatermarkPlaybackState
@@ -117,6 +118,7 @@ internal class MusicHudRenderer(
             height = actualHeight,
         )
         lastBounds = bounds
+        HudOcclusionRegistry.mark(bounds.x, bounds.y, bounds.width, bounds.height)
 
         val mouseX = client.mouseHandler.getScaledXPos(client.window).toInt()
         val mouseY = client.mouseHandler.getScaledYPos(client.window).toInt()

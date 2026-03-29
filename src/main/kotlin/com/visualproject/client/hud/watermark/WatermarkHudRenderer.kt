@@ -3,6 +3,7 @@ package com.visualproject.client.hud.watermark
 import com.mojang.blaze3d.platform.NativeImage
 import com.visualproject.client.ModuleStateStore
 import com.visualproject.client.VisualThemeSettings
+import com.visualproject.client.hud.HudOcclusionRegistry
 import com.visualproject.client.hud.shared.HudRuntimeStats
 import com.visualproject.client.hud.shared.SharedMusicHudRuntime
 import com.visualproject.client.render.sdf.BackdropBlurRenderer
@@ -196,6 +197,7 @@ class WatermarkHudRenderer(
         val renderTrack = state.track?.let { prepareRenderTrack(client, it, snapshot.deltaSeconds) }
         lastRenderedActualBounds = actualBounds
         lastRenderedScale = scale
+        HudOcclusionRegistry.mark(actualBounds.left, actualBounds.top, actualBounds.width, actualBounds.height)
         if (VisualThemeSettings.isTransparentPreset()) {
             BackdropBlurRenderer.captureBackdrop()
         }
@@ -289,6 +291,8 @@ class WatermarkHudRenderer(
         lastRenderedScale = scale
         lastDraggableBounds[WatermarkHudBlockId.INFO_TOP] = WatermarkHudBlockBounds(topPosition.x, topPosition.y, topActualWidth, rowActualHeight)
         lastDraggableBounds[WatermarkHudBlockId.INFO_BOTTOM] = WatermarkHudBlockBounds(bottomPosition.x, bottomPosition.y, bottomActualWidth, rowActualHeight)
+        HudOcclusionRegistry.mark(topPosition.x, topPosition.y, topActualWidth, rowActualHeight)
+        HudOcclusionRegistry.mark(bottomPosition.x, bottomPosition.y, bottomActualWidth, rowActualHeight)
         if (VisualThemeSettings.isTransparentPreset()) {
             BackdropBlurRenderer.captureBackdrop()
         }

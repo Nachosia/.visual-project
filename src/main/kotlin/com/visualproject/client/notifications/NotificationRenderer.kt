@@ -1,6 +1,7 @@
 package com.visualproject.client.notifications
 
 import com.visualproject.client.VisualThemeSettings
+import com.visualproject.client.hud.HudOcclusionRegistry
 import com.visualproject.client.render.sdf.BackdropBlurRenderer
 import com.visualproject.client.render.sdf.SdfGlowStyle
 import com.visualproject.client.render.sdf.SdfNeonBorderStyle
@@ -54,6 +55,7 @@ internal class NotificationRenderer {
             val x = screenWidth - width - Layout.marginRight
             val y = currentY
             currentY += Layout.toastHeight + Layout.toastGap
+            HudOcclusionRegistry.mark(x, y, width, Layout.toastHeight)
 
             SdfPanelRenderer.draw(
                 context = context,

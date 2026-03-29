@@ -11,22 +11,26 @@ import java.util.function.Supplier;
 
 public class NonDumpableDynamicTexture extends DynamicTexture {
 	public NonDumpableDynamicTexture(Supplier<String> nameSupplier, NativeImage pixels) {
+		this(nameSupplier, pixels, true);
+	}
+
+	public NonDumpableDynamicTexture(Supplier<String> nameSupplier, NativeImage pixels, boolean smoothFiltering) {
 		super(nameSupplier, pixels);
-		enableSmoothFiltering();
+		applyFiltering(smoothFiltering);
 	}
 
 	@SuppressWarnings({"rawtypes", "unchecked"})
-	private void enableSmoothFiltering() {
+	private void applyFiltering(boolean smoothFiltering) {
 		try {
 			Method booleanFilter = findMethod("setFilter", boolean.class, boolean.class);
 			if (booleanFilter != null) {
-				booleanFilter.invoke(this, true, false);
+				booleanFilter.invoke(this, smoothFiltering, false);
 				return;
 			}
 
 			Method blurMipmap = findMethod("setBlurMipmap", boolean.class, boolean.class);
 			if (blurMipmap != null) {
-				blurMipmap.invoke(this, true, false);
+				blurMipmap.invoke(this, smoothFiltering, false);
 				return;
 			}
 
@@ -36,21 +40,25 @@ public class NonDumpableDynamicTexture extends DynamicTexture {
 				if (parameterTypes[1] != boolean.class && parameterTypes[1] != Boolean.class) continue;
 				Class<?> first = parameterTypes[0];
 				if (!first.isEnum()) continue;
-				Object trueValue = null;
+				Object filterValue = null;
 				for (Object constant : first.getEnumConstants()) {
 					String name = ((Enum) constant).name();
-					if ("TRUE".equalsIgnoreCase(name) || "YES".equalsIgnoreCase(name)) {
-						trueValue = constant;
+					if (smoothFiltering && ("TRUE".equalsIgnoreCase(name) || "YES".equalsIgnoreCase(name))) {
+						filterValue = constant;
+						break;
+					}
+					if (!smoothFiltering && ("FALSE".equalsIgnoreCase(name) || "NO".equalsIgnoreCase(name))) {
+						filterValue = constant;
 						break;
 					}
 				}
-				if (trueValue != null) {
-					method.invoke(this, trueValue, false);
+				if (filterValue != null) {
+					method.invoke(this, filterValue, false);
 					return;
 				}
 			}
 		} catch (Throwable ignored) {
-			// Best-effort smoothing only.
+			// Best-effort texture filtering only.
 		}
 	}
 

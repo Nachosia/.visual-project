@@ -2,6 +2,7 @@ package com.visualproject.client.hud.potions
 
 import com.visualproject.client.ModuleStateStore
 import com.visualproject.client.VisualThemeSettings
+import com.visualproject.client.hud.HudOcclusionRegistry
 import com.visualproject.client.render.sdf.BackdropBlurRenderer
 import com.visualproject.client.render.sdf.SdfGlowStyle
 import com.visualproject.client.render.sdf.SdfNeonBorderStyle
@@ -81,6 +82,7 @@ internal class PotionHudRenderer {
             height = actualHeight,
         )
         lastBounds = bounds
+        HudOcclusionRegistry.mark(bounds.x, bounds.y, bounds.width, bounds.height)
 
         val accentSync = ModuleStateStore.isSettingEnabled("${moduleId}:accent_sync")
         val neonColor = if (accentSync) VisualThemeSettings.neonBorder() else 0xFF7A2730.toInt()

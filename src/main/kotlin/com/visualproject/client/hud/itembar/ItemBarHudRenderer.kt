@@ -2,6 +2,7 @@ package com.visualproject.client.hud.itembar
 
 import com.visualproject.client.ModuleStateStore
 import com.visualproject.client.VisualThemeSettings
+import com.visualproject.client.hud.HudOcclusionRegistry
 import com.visualproject.client.vText
 import com.visualproject.client.render.sdf.BackdropBlurRenderer
 import com.visualproject.client.render.sdf.SdfGlowStyle
@@ -110,6 +111,7 @@ internal class ItemBarHudRenderer {
             height = actualHeight,
         )
         lastBounds = bounds
+        HudOcclusionRegistry.mark(bounds.x, bounds.y, bounds.width, bounds.height)
 
         val inventory = player.inventory
         val selectedSlot = inventory.selectedSlot

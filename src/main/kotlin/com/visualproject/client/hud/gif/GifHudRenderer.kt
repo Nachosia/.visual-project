@@ -5,6 +5,7 @@ import com.visualproject.client.ModuleStateStore
 import com.visualproject.client.VisualClientMod
 import com.visualproject.client.VisualFileSystem
 import com.visualproject.client.VisualThemeSettings
+import com.visualproject.client.hud.HudOcclusionRegistry
 import com.visualproject.client.render.sdf.BackdropBlurRenderer
 import com.visualproject.client.render.sdf.SdfGlowStyle
 import com.visualproject.client.render.sdf.SdfNeonBorderStyle
@@ -109,6 +110,7 @@ internal class GifHudRenderer {
             ensureBounds(client, Layout.placeholderWidth, Layout.placeholderHeight, Layout.placeholderWidth, Layout.placeholderHeight, scale)
         }
         lastBounds = bounds
+        HudOcclusionRegistry.mark(bounds.x, bounds.y, bounds.width, bounds.height)
         BackdropBlurRenderer.captureBackdrop()
 
         if (animation == null) {

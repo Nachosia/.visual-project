@@ -22,6 +22,12 @@ import com.visualproject.client.ui.menu.drawRoundedPanel
 import com.visualproject.client.ui.menu.drawVerticalGradient
 import com.visualproject.client.ui.menu.fillRoundedRect
 import com.visualproject.client.ui.menu.fitStyledText
+import com.visualproject.client.visuals.chinahat.ChinaHatModule
+import com.visualproject.client.visuals.nimb.NimbModule
+import com.visualproject.client.visuals.time.TimeChangerModule
+import com.visualproject.client.visuals.world.WorldCustomizerModule
+import com.visualproject.client.visuals.worldparticles.WorldParticlesModule
+import com.visualproject.client.visuals.worldparticles.WorldParticleTextureRegistry
 import net.minecraft.client.Minecraft
 import net.minecraft.client.gui.GuiGraphics
 import net.minecraft.client.gui.components.EditBox
@@ -123,6 +129,8 @@ class ExperimentalVisualsMenuScreen : Screen(Component.empty()) {
             key: String,
             label: String,
             rect: IntRect,
+            val selectorRect: IntRect,
+            val useDropdown: Boolean,
             val options: List<ChoiceOptionLayout>,
         ) : SettingRowLayout(key, label, rect)
 
@@ -214,6 +222,7 @@ class ExperimentalVisualsMenuScreen : Screen(Component.empty()) {
     private var activeThemeColorKey: String? = null
     private var pickerDragMode: PickerDragMode? = null
     private var activeSliderKey: String? = null
+    private var activeChoiceKey: String? = null
     private var pickerHue = 0f
     private var pickerSaturation = 1f
     private var pickerValue = 1f
@@ -279,6 +288,11 @@ class ExperimentalVisualsMenuScreen : Screen(Component.empty()) {
         val filtered = filteredModules()
         clampScroll(layout, filtered)
         syncWidgetLayout(layout)
+        activeChoiceKey?.let { openKey ->
+            if (settingChoiceRows(layout).none { it.key == openKey && it.useDropdown }) {
+                activeChoiceKey = null
+            }
+        }
         BackdropBlurRenderer.captureBackdrop()
         if (isTransparentMenuTheme()) {
             context.fill(0, 0, width, height, 0x2A090B10)
@@ -366,10 +380,33 @@ class ExperimentalVisualsMenuScreen : Screen(Component.empty()) {
 
             settingToggleRows(layout).firstOrNull { it.rect.contains(mouseX, mouseY) }?.let { row ->
                 ModuleStateStore.setSettingEnabled(row.key, !ModuleStateStore.isSettingEnabled(row.key))
+                if (toggleAffectsLayout(row.key)) {
+                    rebuildMenuWidgets()
+                }
                 return true
             }
 
-            settingChoiceRows(layout).firstNotNullOfOrNull { row ->
+            val choiceRows = settingChoiceRows(layout)
+            choiceRows.firstNotNullOfOrNull { row ->
+                if (!row.useDropdown || activeChoiceKey != row.key) return@firstNotNullOfOrNull null
+                row.options.firstOrNull { it.rect.contains(mouseX, mouseY) }?.let { option -> row to option }
+            }?.let { (row, option) ->
+                ModuleStateStore.setTextSetting(row.key, option.value)
+                normalizeNotificationChoiceState(row.key)
+                activeChoiceKey = null
+                if (choiceAffectsLayout(row.key)) {
+                    rebuildMenuWidgets()
+                }
+                return true
+            }
+
+            choiceRows.firstOrNull { it.useDropdown && it.selectorRect.contains(mouseX, mouseY) }?.let { row ->
+                activeChoiceKey = if (activeChoiceKey == row.key) null else row.key
+                return true
+            }
+
+            choiceRows.firstNotNullOfOrNull { row ->
+                if (row.useDropdown) return@firstNotNullOfOrNull null
                 row.options.firstOrNull { it.rect.contains(mouseX, mouseY) }?.let { option -> row to option }
             }?.let { (row, option) ->
                 ModuleStateStore.setTextSetting(row.key, option.value)
@@ -378,6 +415,10 @@ class ExperimentalVisualsMenuScreen : Screen(Component.empty()) {
                     rebuildMenuWidgets()
                 }
                 return true
+            }
+
+            if (activeChoiceKey != null) {
+                activeChoiceKey = null
             }
 
             settingSliderRows(layout).firstOrNull { it.rect.contains(mouseX, mouseY) }?.let { row ->
@@ -429,6 +470,7 @@ class ExperimentalVisualsMenuScreen : Screen(Component.empty()) {
     private fun rebuildMenuWidgets() {
         clearWidgets()
         settingInputs.clear()
+        activeChoiceKey = null
 
         val layout = computeLayout()
         val searchRect = searchInputRect(layout)
@@ -472,6 +514,29 @@ class ExperimentalVisualsMenuScreen : Screen(Component.empty()) {
                     VisualThemeSettings.sliderFillColorKey,
                     VisualThemeSettings.sliderKnobColorKey,
                     "gif_hud:chroma_key_color" -> normalizeHexColor(raw)?.let {
+                        ModuleStateStore.setTextSetting(row.key, it)
+                    }
+
+                    WorldParticlesModule.customColorKey -> normalizeHexColor(raw)?.let {
+                        ModuleStateStore.setTextSetting(row.key, it)
+                        ModuleStateStore.setSettingEnabled(WorldParticlesModule.clientColorKey, false)
+                    }
+
+                    ChinaHatModule.customColorKey -> normalizeHexColor(raw)?.let {
+                        ModuleStateStore.setTextSetting(row.key, it)
+                        ModuleStateStore.setSettingEnabled(ChinaHatModule.clientColorKey, false)
+                    }
+
+                    ChinaHatModule.gradientColorKey -> normalizeHexColor(raw)?.let {
+                        ModuleStateStore.setTextSetting(row.key, it)
+                    }
+
+                    NimbModule.customColorKey -> normalizeHexColor(raw)?.let {
+                        ModuleStateStore.setTextSetting(row.key, it)
+                        ModuleStateStore.setSettingEnabled(NimbModule.clientColorKey, false)
+                    }
+
+                    NimbModule.gradientColorKey -> normalizeHexColor(raw)?.let {
                         ModuleStateStore.setTextSetting(row.key, it)
                     }
 
@@ -681,6 +746,7 @@ class ExperimentalVisualsMenuScreen : Screen(Component.empty()) {
                 viewport.x + viewport.width,
                 viewport.y + viewport.height,
             )
+            var overlayChoiceRow: SettingRowLayout.Choice? = null
             settingRows(layout).forEach { row ->
                 when (row) {
                     is SettingRowLayout.Section -> {
@@ -741,26 +807,9 @@ class ExperimentalVisualsMenuScreen : Screen(Component.empty()) {
                     }
 
                     is SettingRowLayout.Choice -> {
-                        val clipRect = SdfPanelRenderer.ClipRect(viewport.x, viewport.y, viewport.width, viewport.height)
-                        SdfPanelRenderer.draw(context, row.rect.x, row.rect.y, row.rect.width, row.rect.height, inputRowStyle(), clipRect)
-                        context.drawString(font, vText(row.label), row.rect.x + 14, row.rect.y + 10, menuTextPrimaryColor(), false)
-                        val selectedValue = choiceValueFor(row.key, row.options.firstOrNull()?.value.orEmpty())
-                        row.options.forEach { option ->
-                            val hovered = option.rect.contains(mouseX, mouseY)
-                            val selected = selectedValue == option.value
-                            val fill = choiceChipFill(selected, hovered)
-                            val border = choiceChipBorder(selected, hovered)
-                            drawRoundedPanel(context, option.rect.x, option.rect.y, option.rect.width, option.rect.height, fill, border, 9)
-                            val text = vText(option.label)
-                            val textWidth = font.width(text)
-                            context.drawString(
-                                font,
-                                text,
-                                option.rect.x + ((option.rect.width - textWidth) / 2),
-                                option.rect.y + 5,
-                                if (selected) menuTextPrimaryColor() else menuTextSecondaryColor(),
-                                false,
-                            )
+                        drawChoiceRow(context, row, viewport, mouseX, mouseY)
+                        if (row.useDropdown && activeChoiceKey == row.key) {
+                            overlayChoiceRow = row
                         }
                     }
 
@@ -768,6 +817,7 @@ class ExperimentalVisualsMenuScreen : Screen(Component.empty()) {
                     }
                 }
             }
+            overlayChoiceRow?.let { drawChoiceDropdownOverlay(context, it, mouseX, mouseY) }
             context.disableScissor()
             return
         }
@@ -788,6 +838,7 @@ class ExperimentalVisualsMenuScreen : Screen(Component.empty()) {
             viewport.x + viewport.width,
             viewport.y + viewport.height,
         )
+        var overlayChoiceRow: SettingRowLayout.Choice? = null
         settingRows(layout).forEach { row ->
             when (row) {
                 is SettingRowLayout.Section -> {
@@ -841,26 +892,9 @@ class ExperimentalVisualsMenuScreen : Screen(Component.empty()) {
                 }
 
                 is SettingRowLayout.Choice -> {
-                    val clipRect = SdfPanelRenderer.ClipRect(viewport.x, viewport.y, viewport.width, viewport.height)
-                    SdfPanelRenderer.draw(context, row.rect.x, row.rect.y, row.rect.width, row.rect.height, inputRowStyle(), clipRect)
-                    context.drawString(font, vText(row.label), row.rect.x + 14, row.rect.y + 10, menuTextPrimaryColor(), false)
-                    val selectedValue = choiceValueFor(row.key, row.options.firstOrNull()?.value.orEmpty())
-                    row.options.forEach { option ->
-                        val hovered = option.rect.contains(mouseX, mouseY)
-                        val selected = selectedValue == option.value
-                        val fill = choiceChipFill(selected, hovered)
-                        val border = choiceChipBorder(selected, hovered)
-                        drawRoundedPanel(context, option.rect.x, option.rect.y, option.rect.width, option.rect.height, fill, border, 9)
-                        val text = vText(option.label)
-                        val textWidth = font.width(text)
-                        context.drawString(
-                            font,
-                            text,
-                            option.rect.x + ((option.rect.width - textWidth) / 2),
-                            option.rect.y + 5,
-                            if (selected) menuTextPrimaryColor() else menuTextSecondaryColor(),
-                            false,
-                        )
+                    drawChoiceRow(context, row, viewport, mouseX, mouseY)
+                    if (row.useDropdown && activeChoiceKey == row.key) {
+                        overlayChoiceRow = row
                     }
                 }
 
@@ -884,6 +918,7 @@ class ExperimentalVisualsMenuScreen : Screen(Component.empty()) {
                 }
             }
         }
+        overlayChoiceRow?.let { drawChoiceDropdownOverlay(context, it, mouseX, mouseY) }
         context.disableScissor()
     }
 
@@ -943,6 +978,122 @@ class ExperimentalVisualsMenuScreen : Screen(Component.empty()) {
         context.drawString(font, vText("Slider Preview"), sliderTrackX, sliderTrackY - 14, menuTextPrimaryColor(), false)
 
         context.disableScissor()
+    }
+
+    private fun drawChoiceRow(
+        context: GuiGraphics,
+        row: SettingRowLayout.Choice,
+        viewport: IntRect,
+        mouseX: Double,
+        mouseY: Double,
+    ) {
+        val clipRect = SdfPanelRenderer.ClipRect(viewport.x, viewport.y, viewport.width, viewport.height)
+        SdfPanelRenderer.draw(context, row.rect.x, row.rect.y, row.rect.width, row.rect.height, inputRowStyle(), clipRect)
+        context.drawString(font, vText(row.label), row.rect.x + 14, row.rect.y + 10, menuTextPrimaryColor(), false)
+        val selectedValue = choiceValueFor(row.key, row.options.firstOrNull()?.value.orEmpty())
+
+        if (!row.useDropdown) {
+            row.options.forEach { option ->
+                val hovered = option.rect.contains(mouseX, mouseY)
+                val selected = selectedValue == option.value
+                val fill = choiceChipFill(selected, hovered)
+                val border = choiceChipBorder(selected, hovered)
+                drawRoundedPanel(context, option.rect.x, option.rect.y, option.rect.width, option.rect.height, fill, border, 9)
+                val text = vText(option.label)
+                val textWidth = font.width(text)
+                context.drawString(
+                    font,
+                    text,
+                    option.rect.x + ((option.rect.width - textWidth) / 2),
+                    option.rect.y + 5,
+                    if (selected) menuTextPrimaryColor() else menuTextSecondaryColor(),
+                    false,
+                )
+            }
+            return
+        }
+
+        val selectorHovered = row.selectorRect.contains(mouseX, mouseY)
+        val selectorOpen = activeChoiceKey == row.key
+        drawRoundedPanel(
+            context,
+            row.selectorRect.x,
+            row.selectorRect.y,
+            row.selectorRect.width,
+            row.selectorRect.height,
+            choiceChipFill(selectorOpen, selectorHovered),
+            choiceChipBorder(selectorOpen, selectorHovered),
+            9,
+        )
+        val selectedLabel = row.options.firstOrNull { it.value == selectedValue }?.label ?: row.options.firstOrNull()?.label.orEmpty()
+        context.drawString(
+            font,
+            fitStyledText(font, selectedLabel, row.selectorRect.width - 28),
+            row.selectorRect.x + 10,
+            row.selectorRect.y + 5,
+            menuTextPrimaryColor(),
+            false,
+        )
+        context.drawString(
+            font,
+            vText(if (selectorOpen) "^" else "v"),
+            row.selectorRect.x + row.selectorRect.width - 12,
+            row.selectorRect.y + 5,
+            menuTextSecondaryColor(),
+            false,
+        )
+    }
+
+    private fun drawChoiceDropdownOverlay(
+        context: GuiGraphics,
+        row: SettingRowLayout.Choice,
+        mouseX: Double,
+        mouseY: Double,
+    ) {
+        if (!row.useDropdown || activeChoiceKey != row.key || row.options.isEmpty()) return
+
+        val selectedValue = choiceValueFor(row.key, row.options.firstOrNull()?.value.orEmpty())
+        val firstRect = row.options.first().rect
+        val lastRect = row.options.last().rect
+        val container = IntRect(
+            firstRect.x,
+            firstRect.y - 4,
+            firstRect.width,
+            (lastRect.y + lastRect.height) - firstRect.y + 8,
+        )
+        drawRoundedPanel(
+            context,
+            container.x,
+            container.y,
+            container.width,
+            container.height,
+            menuFieldFillColor(),
+            menuFieldBorderColor(),
+            11,
+        )
+
+        row.options.forEach { option ->
+            val hovered = option.rect.contains(mouseX, mouseY)
+            val selected = selectedValue == option.value
+            drawRoundedPanel(
+                context,
+                option.rect.x,
+                option.rect.y,
+                option.rect.width,
+                option.rect.height,
+                choiceChipFill(selected, hovered),
+                choiceChipBorder(selected, hovered),
+                8,
+            )
+            context.drawString(
+                font,
+                fitStyledText(font, option.label, option.rect.width - 16),
+                option.rect.x + 8,
+                option.rect.y + 5,
+                if (selected) menuTextPrimaryColor() else menuTextSecondaryColor(),
+                false,
+            )
+        }
     }
 
     private fun drawThemeSampleCard(
@@ -1167,14 +1318,25 @@ class ExperimentalVisualsMenuScreen : Screen(Component.empty()) {
 
         fun addChoice(key: String, label: String, vararg options: Pair<String, String>) {
             val rect = IntRect(startX, currentY, width, Theme.inputRowHeight)
-            val optionsY = rect.y + 22
-            val optionGap = 8
-            val optionWidth = ((rect.width - 20 - ((options.size - 1) * optionGap)) / options.size).coerceAtLeast(34)
-            val layouts = options.mapIndexed { index, option ->
-                val x = rect.x + 10 + (index * (optionWidth + optionGap))
-                ChoiceOptionLayout(option.first, option.second, IntRect(x, optionsY, optionWidth, 18))
+            val selectorRect = IntRect(rect.x + 10, rect.y + 22, rect.width - 20, 18)
+            val useDropdown = options.size > 4
+            val layouts = if (useDropdown) {
+                options.mapIndexed { index, option ->
+                    ChoiceOptionLayout(
+                        option.first,
+                        option.second,
+                        IntRect(selectorRect.x, selectorRect.y + selectorRect.height + 4 + (index * 20), selectorRect.width, 18),
+                    )
+                }
+            } else {
+                val optionGap = 8
+                val optionWidth = ((rect.width - 20 - ((options.size - 1) * optionGap)) / options.size).coerceAtLeast(34)
+                options.mapIndexed { index, option ->
+                    val x = rect.x + 10 + (index * (optionWidth + optionGap))
+                    ChoiceOptionLayout(option.first, option.second, IntRect(x, selectorRect.y, optionWidth, 18))
+                }
             }
-            rows += SettingRowLayout.Choice(key, label, rect, layouts)
+            rows += SettingRowLayout.Choice(key, label, rect, selectorRect, useDropdown, layouts)
             currentY += Theme.inputRowHeight + 10
         }
 
@@ -1262,6 +1424,117 @@ class ExperimentalVisualsMenuScreen : Screen(Component.empty()) {
             return rows
         }
 
+        if (selectedModule.id == WorldCustomizerModule.moduleId) {
+            addSection("Fog")
+            addToggle(WorldCustomizerModule.customizeFogKey, "Customize Fog")
+            addToggle(WorldCustomizerModule.customFogDistanceKey, "Custom Distance")
+            addSlider(WorldCustomizerModule.fogDistanceKey, "Fog Distance", 0.10f, 1.00f)
+
+            addSection("Sky")
+            addToggle(WorldCustomizerModule.customizeSkyKey, "Customize Sky")
+
+            addSection("Color")
+            addToggle(WorldCustomizerModule.clientSkyColorKey, "Client Color")
+            addInput(WorldCustomizerModule.customSkyColorKey, "Custom Color", "#RRGGBB")
+            return rows
+        }
+
+        if (selectedModule.id == WorldParticlesModule.moduleId) {
+            addChoice(
+                WorldParticlesModule.particleTypeKey,
+                "Particle Type",
+                WorldParticlesModule.ParticleType.SPARK.id to WorldParticlesModule.ParticleType.SPARK.label,
+                WorldParticlesModule.ParticleType.SUN.id to WorldParticlesModule.ParticleType.SUN.label,
+                WorldParticlesModule.ParticleType.SNOWFLAKE.id to WorldParticlesModule.ParticleType.SNOWFLAKE.label,
+                WorldParticlesModule.ParticleType.PAYMENTS.id to WorldParticlesModule.ParticleType.PAYMENTS.label,
+                WorldParticlesModule.ParticleType.DOLLAR.id to WorldParticlesModule.ParticleType.DOLLAR.label,
+                WorldParticlesModule.ParticleType.HEART.id to WorldParticlesModule.ParticleType.HEART.label,
+                WorldParticlesModule.ParticleType.WATER_DROP.id to WorldParticlesModule.ParticleType.WATER_DROP.label,
+                WorldParticlesModule.ParticleType.STAR.id to WorldParticlesModule.ParticleType.STAR.label,
+                WorldParticlesModule.ParticleType.MOON.id to WorldParticlesModule.ParticleType.MOON.label,
+                WorldParticlesModule.ParticleType.BOLT.id to WorldParticlesModule.ParticleType.BOLT.label,
+                WorldParticlesModule.ParticleType.NEARBY.id to WorldParticlesModule.ParticleType.NEARBY.label,
+                WorldParticlesModule.ParticleType.CUSTOM.id to WorldParticlesModule.ParticleType.CUSTOM.label,
+            )
+            addChoice(
+                WorldParticlesModule.physicsModeKey,
+                "Physics Mode",
+                WorldParticlesModule.PhysicsMode.REALISTIC.id to WorldParticlesModule.PhysicsMode.REALISTIC.label,
+                WorldParticlesModule.PhysicsMode.NO_COLLISION.id to WorldParticlesModule.PhysicsMode.NO_COLLISION.label,
+                WorldParticlesModule.PhysicsMode.NO_PHYSICS.id to WorldParticlesModule.PhysicsMode.NO_PHYSICS.label,
+            )
+
+            addSection("Spawn")
+            addSlider(WorldParticlesModule.spawnRateKey, "Spawn Frequency", 1f, 20f)
+            addSlider(WorldParticlesModule.spawnCountKey, "Count Per Spawn", 1f, 20f)
+            addSlider(WorldParticlesModule.spawnRadiusKey, "Spawn Radius", 2f, 64f)
+            addSlider(WorldParticlesModule.spawnHeightKey, "Spawn Height", 1f, 32f)
+
+            addSection("Particles")
+            addSlider(WorldParticlesModule.sizeKey, "Size", 0.10f, 1.50f)
+            addSlider(WorldParticlesModule.lifetimeKey, "Lifetime", 10f, 240f)
+            addSlider(WorldParticlesModule.gravityKey, "Gravity", 0.0f, 0.20f)
+
+            addSection("Move")
+            addToggle(WorldParticlesModule.horizontalMovementKey, "Horizontal Movement")
+            addSlider(WorldParticlesModule.speedKey, "Movement Speed", 0.0f, 0.30f)
+
+            addSection("Color")
+            addToggle(WorldParticlesModule.clientColorKey, "Client Color")
+            addInput(WorldParticlesModule.customColorKey, "Custom Color", "#RRGGBB")
+
+            if (choiceValueFor(WorldParticlesModule.particleTypeKey, WorldParticlesModule.ParticleType.WATER_DROP.id) ==
+                WorldParticlesModule.ParticleType.CUSTOM.id
+            ) {
+                addSection("Custom")
+                addInput(WorldParticlesModule.customFileKey, "Particle File", "Visual/par/name.png")
+            }
+            return rows
+        }
+
+        if (selectedModule.id == ChinaHatModule.moduleId) {
+            addChoice(
+                ChinaHatModule.shapeKey,
+                "Shape",
+                ChinaHatModule.Shape.ROUND.id to ChinaHatModule.Shape.ROUND.label,
+                ChinaHatModule.Shape.RHOMBUS.id to ChinaHatModule.Shape.RHOMBUS.label,
+            )
+            if (choiceValueFor(ChinaHatModule.shapeKey, ChinaHatModule.Shape.ROUND.id) == ChinaHatModule.Shape.RHOMBUS.id) {
+                addSlider(ChinaHatModule.sidesKey, "Sides", 2f, 32f)
+                addToggle(ChinaHatModule.rhombusHitboxLockKey, "Lock To Hitbox")
+            }
+            addSlider(ChinaHatModule.heightKey, "Height", 0.05f, 0.80f)
+            addSlider(ChinaHatModule.hitboxOffsetKey, "Hitbox Offset", -2.00f, 2.00f)
+            addSlider(ChinaHatModule.opacityKey, "Opacity", 0.05f, 1.00f)
+            addToggle(ChinaHatModule.outlineKey, "Outline")
+
+            addSection("Color")
+            addToggle(ChinaHatModule.clientColorKey, "Client Color")
+            addInput(ChinaHatModule.customColorKey, "Custom Color", "#RRGGBB")
+            addToggle(ChinaHatModule.gradientKey, "Gradient")
+            if (ModuleStateStore.isSettingEnabled(ChinaHatModule.gradientKey)) {
+                addSlider(ChinaHatModule.rotationSpeedKey, "Rotation Speed", 0.00f, 5.00f)
+                addInput(ChinaHatModule.gradientColorKey, "Gradient Color", "#RRGGBB")
+            }
+            return rows
+        }
+
+        if (selectedModule.id == NimbModule.moduleId) {
+            addSlider(NimbModule.ringThicknessKey, "Ring Thickness", 0.01f, 0.25f)
+            addSlider(NimbModule.innerRadiusKey, "Inner Radius", 0.10f, 1.50f)
+            addSlider(NimbModule.heightKey, "Height", -2.00f, 2.00f)
+            addSlider(NimbModule.rotationSpeedKey, "Rotation Speed", 0.00f, 5.00f)
+
+            addSection("Color")
+            addToggle(NimbModule.clientColorKey, "Client Color")
+            addInput(NimbModule.customColorKey, "Custom Color", "#RRGGBB")
+            addToggle(NimbModule.gradientKey, "Gradient")
+            if (ModuleStateStore.isSettingEnabled(NimbModule.gradientKey)) {
+                addInput(NimbModule.gradientColorKey, "Gradient Color", "#RRGGBB")
+            }
+            return rows
+        }
+
         addToggle("${selectedModule.id}:visible_hud", "Visible In HUD")
         if (selectedModule.tab == VisualMenuTab.HUD) {
             val minSize = if (selectedModule.id == "gif_hud") 0.1f else 0.5f
@@ -1310,6 +1583,17 @@ class ExperimentalVisualsMenuScreen : Screen(Component.empty()) {
         }
         if (selectedModule.id == "target_hud") {
             addSlider(TargetHudModule.lifetimeSecondsKey, "Lifetime", 0f, 5f)
+        }
+        if (selectedModule.id == TimeChangerModule.moduleId) {
+            addChoice(
+                TimeChangerModule.presetKey,
+                "Time Of Day",
+                TimeChangerModule.TimePreset.DAY.id to TimeChangerModule.TimePreset.DAY.label,
+                TimeChangerModule.TimePreset.SUNSET.id to TimeChangerModule.TimePreset.SUNSET.label,
+                TimeChangerModule.TimePreset.NIGHT.id to TimeChangerModule.TimePreset.NIGHT.label,
+                TimeChangerModule.TimePreset.MIDNIGHT.id to TimeChangerModule.TimePreset.MIDNIGHT.label,
+                TimeChangerModule.TimePreset.DAWN.id to TimeChangerModule.TimePreset.DAWN.label,
+            )
         }
         if (selectedModule.id == BtcHudModule.moduleId) {
             addToggle(BtcHudModule.showBpsKey, "Show BPS")
@@ -1464,6 +1748,13 @@ class ExperimentalVisualsMenuScreen : Screen(Component.empty()) {
             VisualThemeSettings.sliderKnobColorKey -> ModuleStateStore.getTextSetting(key, "#F0F2FF")
             "gif_hud:file_name" -> ModuleStateStore.getTextSetting(key, "")
             "gif_hud:chroma_key_color" -> ModuleStateStore.getTextSetting(key, "#00FF00")
+            WorldCustomizerModule.customSkyColorKey -> ModuleStateStore.getTextSetting(key, "#4B5DFF")
+            WorldParticlesModule.customColorKey -> ModuleStateStore.getTextSetting(key, "#B31284")
+            ChinaHatModule.customColorKey -> ModuleStateStore.getTextSetting(key, "#6A8CFF")
+            ChinaHatModule.gradientColorKey -> ModuleStateStore.getTextSetting(key, "#FF00FC")
+            NimbModule.customColorKey -> ModuleStateStore.getTextSetting(key, "#FFFFFF")
+            NimbModule.gradientColorKey -> ModuleStateStore.getTextSetting(key, "#8A71FF")
+            WorldParticlesModule.customFileKey -> ModuleStateStore.getTextSetting(key, "")
             WatermarkHudModule.customLabelKey -> ModuleStateStore.getTextSetting(key, "Developer")
             else -> ModuleStateStore.getTextSetting(key, "")
         }
@@ -1475,7 +1766,13 @@ class ExperimentalVisualsMenuScreen : Screen(Component.empty()) {
             key == VisualThemeSettings.toggleFillColorKey ||
             key == VisualThemeSettings.sliderFillColorKey ||
             key == VisualThemeSettings.sliderKnobColorKey ||
-            key == "gif_hud:chroma_key_color"
+            key == "gif_hud:chroma_key_color" ||
+            key == WorldCustomizerModule.customSkyColorKey ||
+            key == WorldParticlesModule.customColorKey ||
+            key == ChinaHatModule.customColorKey ||
+            key == ChinaHatModule.gradientColorKey ||
+            key == NimbModule.customColorKey ||
+            key == NimbModule.gradientColorKey
     }
 
     private fun themeColorSwatchRect(row: SettingRowLayout.Input): IntRect? {
@@ -1507,11 +1804,21 @@ class ExperimentalVisualsMenuScreen : Screen(Component.empty()) {
             swatch.y,
             swatch.width,
             swatch.height,
-            if (isLightMenuTheme()) 0xEEF5F8FE.toInt() else 0xDD0F1727.toInt(),
+            if (row.key == WorldParticlesModule.customColorKey) {
+                0xFF121821.toInt()
+            } else if (isLightMenuTheme()) {
+                0xEEF5F8FE.toInt()
+            } else {
+                0xDD0F1727.toInt()
+            },
             border,
             7,
         )
-        fillRoundedRect(context, swatch.x + 3, swatch.y + 3, swatch.width - 6, swatch.height - 6, 4, color)
+        if (row.key == WorldParticlesModule.customColorKey) {
+            drawWorldParticlePreview(context, IntRect(swatch.x + 2, swatch.y + 2, swatch.width - 4, swatch.height - 4))
+        } else {
+            fillRoundedRect(context, swatch.x + 3, swatch.y + 3, swatch.width - 6, swatch.height - 6, 4, color)
+        }
     }
 
     private fun themePickerLayout(layout: ScreenLayout): ThemePickerLayout? {
@@ -1568,6 +1875,15 @@ class ExperimentalVisualsMenuScreen : Screen(Component.empty()) {
         val rgb = Color.HSBtoRGB(pickerHue.coerceIn(0f, 1f), pickerSaturation.coerceIn(0f, 1f), pickerValue.coerceIn(0f, 1f))
         val normalized = "#%06X".format(java.util.Locale.US, rgb and 0x00FFFFFF)
         ModuleStateStore.setTextSetting(key, normalized)
+        if (key == WorldParticlesModule.customColorKey) {
+            ModuleStateStore.setSettingEnabled(WorldParticlesModule.clientColorKey, false)
+        }
+        if (key == ChinaHatModule.customColorKey) {
+            ModuleStateStore.setSettingEnabled(ChinaHatModule.clientColorKey, false)
+        }
+        if (key == NimbModule.customColorKey) {
+            ModuleStateStore.setSettingEnabled(NimbModule.clientColorKey, false)
+        }
         settingInputs[key]?.setValue(normalized)
     }
 
@@ -1579,6 +1895,12 @@ class ExperimentalVisualsMenuScreen : Screen(Component.empty()) {
             VisualThemeSettings.sliderFillColorKey -> sliderFillColor()
             VisualThemeSettings.sliderKnobColorKey -> sliderKnobColor()
             "gif_hud:chroma_key_color" -> parseColorSetting(ModuleStateStore.getTextSetting(key, "#00FF00"), 0xFF00FF00.toInt())
+            WorldCustomizerModule.customSkyColorKey -> parseColorSetting(ModuleStateStore.getTextSetting(key, "#4B5DFF"), 0xFF4B5DFF.toInt())
+            WorldParticlesModule.customColorKey -> parseColorSetting(ModuleStateStore.getTextSetting(key, "#B31284"), 0xFFB31284.toInt())
+            ChinaHatModule.customColorKey -> parseColorSetting(ModuleStateStore.getTextSetting(key, "#6A8CFF"), 0xFF6A8CFF.toInt())
+            ChinaHatModule.gradientColorKey -> parseColorSetting(ModuleStateStore.getTextSetting(key, "#FF00FC"), 0xFFFF00FC.toInt())
+            NimbModule.customColorKey -> parseColorSetting(ModuleStateStore.getTextSetting(key, "#FFFFFF"), 0xFFFFFFFF.toInt())
+            NimbModule.gradientColorKey -> parseColorSetting(ModuleStateStore.getTextSetting(key, "#8A71FF"), 0xFF8A71FF.toInt())
             else -> 0xFFFFFFFF.toInt()
         }
     }
@@ -1596,6 +1918,12 @@ class ExperimentalVisualsMenuScreen : Screen(Component.empty()) {
             VisualThemeSettings.sliderFillColorKey -> "Slider Fill"
             VisualThemeSettings.sliderKnobColorKey -> "Slider Knob"
             "gif_hud:chroma_key_color" -> "Chroma Key Color"
+            WorldCustomizerModule.customSkyColorKey -> "Custom Sky Color"
+            WorldParticlesModule.customColorKey -> "Custom Particle Color"
+            ChinaHatModule.customColorKey -> "Custom China Hat Color"
+            ChinaHatModule.gradientColorKey -> "China Hat Gradient Color"
+            NimbModule.customColorKey -> "Custom Nimb Color"
+            NimbModule.gradientColorKey -> "Nimb Gradient Color"
             else -> "Theme Color"
         }
         context.drawString(font, vText(label), picker.bounds.x + 18, picker.bounds.y + 16, menuTextPrimaryColor(), false)
@@ -1635,6 +1963,7 @@ class ExperimentalVisualsMenuScreen : Screen(Component.empty()) {
         )
 
         val currentColor = currentThemeColorForKey(activeThemeColorKey ?: return)
+        val particlePreview = activeThemeColorKey == WorldParticlesModule.customColorKey
         SdfPanelRenderer.draw(
             context,
             picker.previewRect.x,
@@ -1642,14 +1971,18 @@ class ExperimentalVisualsMenuScreen : Screen(Component.empty()) {
             picker.previewRect.width,
             picker.previewRect.height,
             SdfPanelStyle(
-                baseColor = if (isTransparentMenuTheme()) {
+                baseColor = if (particlePreview) {
+                    0xFF121821.toInt()
+                } else if (isTransparentMenuTheme()) {
                     0x6C1E2633
                 } else if (isLightMenuTheme()) {
                     0xFFF5F8FE.toInt()
                 } else {
                     0xFF111A2D.toInt()
                 },
-                borderColor = if (isTransparentMenuTheme()) {
+                borderColor = if (particlePreview) {
+                    0xFF33415A.toInt()
+                } else if (isTransparentMenuTheme()) {
                     blendColor(0xFF697383.toInt(), currentColor, 0.20f)
                 } else if (isLightMenuTheme()) {
                     blendColor(0xFFC8D3E6.toInt(), currentColor, 0.24f)
@@ -1659,17 +1992,37 @@ class ExperimentalVisualsMenuScreen : Screen(Component.empty()) {
                 borderWidthPx = 1f,
                 radiusPx = 16f,
                 innerGlow = SdfGlowStyle(0xFFFFFFFF.toInt(), radiusPx = 8f, strength = 0.02f, opacity = 0.02f),
-                outerGlow = menuGlow(currentColor, radiusPx = 16f, strength = if (isLightMenuTheme()) 0.08f else 0.12f, opacity = if (isLightMenuTheme()) 0.06f else 0.08f),
+                outerGlow = if (particlePreview) {
+                    SdfGlowStyle(0x00000000, radiusPx = 0f, strength = 0f, opacity = 0f)
+                } else {
+                    menuGlow(currentColor, radiusPx = 16f, strength = if (isLightMenuTheme()) 0.08f else 0.12f, opacity = if (isLightMenuTheme()) 0.06f else 0.08f)
+                },
                 shade = if (isTransparentMenuTheme()) SdfShadeStyle(0x04FFFFFF, 0x10000000) else if (isLightMenuTheme()) SdfShadeStyle(0x08FFFFFF, 0x0CD2DDEC) else SdfShadeStyle(0x0EFFFFFF, 0x14000000),
-                neonBorder = menuNeonBorder(
-                    VisualThemeSettings.withAlpha(neonBorderColor(), if (isLightMenuTheme()) 0x54 else 0x84),
-                    widthPx = 0.9f,
-                    softnessPx = 4f,
-                    strength = if (isLightMenuTheme()) 0.22f else 0.34f,
-                ),
+                neonBorder = if (particlePreview) {
+                    SdfNeonBorderStyle(0x00000000, widthPx = 0f, softnessPx = 0f, strength = 0f)
+                } else {
+                    menuNeonBorder(
+                        VisualThemeSettings.withAlpha(neonBorderColor(), if (isLightMenuTheme()) 0x54 else 0x84),
+                        widthPx = 0.9f,
+                        softnessPx = 4f,
+                        strength = if (isLightMenuTheme()) 0.22f else 0.34f,
+                    )
+                },
             ),
         )
-        fillRoundedRect(context, picker.previewRect.x + 12, picker.previewRect.y + 12, picker.previewRect.width - 24, picker.previewRect.height - 24, 14, currentColor)
+        if (particlePreview) {
+            drawWorldParticlePreview(
+                context,
+                IntRect(
+                    picker.previewRect.x + 10,
+                    picker.previewRect.y + 10,
+                    picker.previewRect.width - 20,
+                    picker.previewRect.height - 20,
+                ),
+            )
+        } else {
+            fillRoundedRect(context, picker.previewRect.x + 12, picker.previewRect.y + 12, picker.previewRect.width - 24, picker.previewRect.height - 24, 14, currentColor)
+        }
         context.drawString(font, vText(settingValueFor(activeThemeColorKey ?: "")), picker.previewRect.x - 2, picker.previewRect.y + picker.previewRect.height + 12, menuTextPrimaryColor(), false)
 
         val closeHovered = picker.bounds.contains(mouseX, mouseY).not()
@@ -1756,6 +2109,36 @@ class ExperimentalVisualsMenuScreen : Screen(Component.empty()) {
         )
     }
 
+    private fun drawWorldParticlePreview(context: GuiGraphics, bounds: IntRect) {
+        val texture = WorldParticleTextureRegistry.resolveTexture(Minecraft.getInstance()) ?: return
+        val innerWidth = (bounds.width - 2).coerceAtLeast(1)
+        val innerHeight = (bounds.height - 2).coerceAtLeast(1)
+        val scale = min(
+            innerWidth.toFloat() / texture.textureWidth.toFloat().coerceAtLeast(1f),
+            innerHeight.toFloat() / texture.textureHeight.toFloat().coerceAtLeast(1f),
+        ).coerceAtLeast(0.01f)
+        val drawWidth = max(1, (texture.textureWidth * scale).roundToInt())
+        val drawHeight = max(1, (texture.textureHeight * scale).roundToInt())
+        val drawX = bounds.x + ((bounds.width - drawWidth) / 2)
+        val drawY = bounds.y + ((bounds.height - drawHeight) / 2)
+        val tintColor = 0xFF000000.toInt() or (texture.colorRgb and 0x00FFFFFF)
+        context.blit(
+            RenderPipelines.GUI_TEXTURED,
+            texture.textureId,
+            drawX,
+            drawY,
+            0f,
+            0f,
+            drawWidth,
+            drawHeight,
+            texture.textureWidth,
+            texture.textureHeight,
+            texture.textureWidth,
+            texture.textureHeight,
+            tintColor,
+        )
+    }
+
     private fun formatNumber(value: Float): String {
         return if (value == value.toInt().toFloat()) {
             value.toInt().toString()
@@ -1795,9 +2178,16 @@ class ExperimentalVisualsMenuScreen : Screen(Component.empty()) {
         return key == VisualThemeSettings.menuPresetKey ||
             key == VisualThemeSettings.themeFontKey ||
             key == WatermarkHudModule.typeKey ||
+            key == ChinaHatModule.shapeKey ||
+            key == WorldParticlesModule.particleTypeKey ||
             key == NotificationsSettings.modeKey ||
             key == NotificationsSettings.hitSoundModeKey ||
             key == NotificationsSettings.critSoundModeKey
+    }
+
+    private fun toggleAffectsLayout(key: String): Boolean {
+        return key == NimbModule.gradientKey ||
+            key == ChinaHatModule.gradientKey
     }
 
     private fun normalizeNotificationChoiceState(changedKey: String) {
@@ -1888,6 +2278,7 @@ class ExperimentalVisualsMenuScreen : Screen(Component.empty()) {
             NotificationsSettings.stage2LeadKey,
             NotificationsSettings.repeatPeriodKey,
             TargetHudModule.lifetimeSecondsKey -> kotlin.math.round(rawValue * 10f) / 10f
+            ChinaHatModule.sidesKey -> kotlin.math.round(rawValue).coerceIn(2f, 32f)
             else -> if (row.key.endsWith(":size")) {
                 kotlin.math.round(rawValue * 10f) / 10f
             } else {
@@ -1917,6 +2308,7 @@ class ExperimentalVisualsMenuScreen : Screen(Component.empty()) {
             NotificationsSettings.stage2LeadKey,
             NotificationsSettings.repeatPeriodKey,
             TargetHudModule.lifetimeSecondsKey -> "${String.format(java.util.Locale.US, "%.1f", value)}s"
+            ChinaHatModule.sidesKey -> value.roundToInt().toString()
             else -> if (key.endsWith(":size")) {
                 "${String.format(java.util.Locale.US, "%.1f", value)}x"
             } else {

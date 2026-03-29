@@ -3,11 +3,17 @@
   "package": "com.visualproject.client.mixin",
   "compatibilityLevel": "JAVA_21",
   "mixins": [
+    "AtmosphericFogEnvironmentMixin",
+    "ClientLevelDataAccessor",
     "ClientPacketListenerMixin",
     "ContextualBarRendererMixin",
+    "FogDataAccessor",
+    "FogRendererMixin",
     "GameRendererMixin",
     "GuiHotbarMixin",
-    "PlayerAttackSoundMixin"
+    "PlayerAttackSoundMixin",
+    "SkyRenderStateAccessor",
+    "SkyRendererMixin"
   ],
   "injectors": {
     "defaultRequire": 1

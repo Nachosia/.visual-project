@@ -2,6 +2,7 @@
 
 import com.visualproject.client.ModuleStateStore
 import com.visualproject.client.VisualThemeSettings
+import com.visualproject.client.hud.HudOcclusionRegistry
 import com.visualproject.client.hud.shared.HudRuntimeStats
 import com.visualproject.client.render.sdf.BackdropBlurRenderer
 import com.visualproject.client.render.sdf.SdfGlowStyle
@@ -82,6 +83,7 @@ internal class BtcHudRenderer {
                 blockPositions[visual.id] = clampedPosition
             }
             lastBounds[visual.id] = BtcHudBounds(clampedPosition.x, clampedPosition.y, actualWidth, actualHeight)
+            HudOcclusionRegistry.mark(clampedPosition.x, clampedPosition.y, actualWidth, actualHeight)
 
             context.pose().pushMatrix()
             context.pose().translate(clampedPosition.x.toFloat(), clampedPosition.y.toFloat())

@@ -15,6 +15,11 @@ import com.visualproject.client.hud.target.TargetHudModule
 import com.visualproject.client.hud.watermark.WatermarkHudModule
 import com.visualproject.client.notifications.NotificationsModule
 import com.visualproject.client.render.sdf.SdfShaderRegistry
+import com.visualproject.client.visuals.chinahat.ChinaHatModule
+import com.visualproject.client.visuals.nimb.NimbModule
+import com.visualproject.client.visuals.time.TimeChangerModule
+import com.visualproject.client.visuals.world.WorldCustomizerModule
+import com.visualproject.client.visuals.worldparticles.WorldParticlesModule
 import net.fabricmc.api.ClientModInitializer
 import net.fabricmc.fabric.api.client.event.lifecycle.v1.ClientTickEvents
 import net.fabricmc.fabric.api.client.keybinding.v1.KeyBindingHelper
@@ -70,6 +75,9 @@ object VisualClientMod : ClientModInitializer {
             )
         })
 
+        WorldParticlesModule.initialize()
+        ChinaHatModule.initialize()
+        NimbModule.initialize()
         WatermarkHudModule.initialize()
         ArmorHudModule.initialize()
         BtcHudModule.initialize()
@@ -81,6 +89,8 @@ object VisualClientMod : ClientModInitializer {
         NotificationsModule.initialize()
         PotionHudModule.initialize()
         TargetHudModule.initialize()
+        TimeChangerModule.initialize()
+        WorldCustomizerModule.initialize()
 
         LOGGER.info("Visual Client initialized.")
     }

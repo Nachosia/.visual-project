@@ -2,6 +2,7 @@ package com.visualproject.client.hud.target
 
 import com.visualproject.client.ModuleStateStore
 import com.visualproject.client.VisualThemeSettings
+import com.visualproject.client.hud.HudOcclusionRegistry
 import com.visualproject.client.render.sdf.BackdropBlurRenderer
 import com.visualproject.client.render.sdf.SdfGlowStyle
 import com.visualproject.client.render.sdf.SdfNeonBorderStyle
@@ -283,6 +284,7 @@ internal class TargetHudRenderer {
             height = TargetHudLayout.height,
         )
         lastBounds = actualBounds
+        HudOcclusionRegistry.mark(actualBounds.x, actualBounds.y, actualBounds.width, actualBounds.height)
         val mouseX = client.mouseHandler.getScaledXPos(client.window).toInt()
         val mouseY = client.mouseHandler.getScaledYPos(client.window).toInt()
         val localMouseX = toLocal(mouseX, actualBounds.x, scale)
