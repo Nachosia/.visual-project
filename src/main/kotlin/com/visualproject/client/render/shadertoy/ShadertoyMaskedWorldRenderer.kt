@@ -48,6 +48,9 @@ object ShadertoyMaskedWorldRenderer {
     private var maskSampler: GpuSampler? = null
     private var maskWidth = -1
     private var maskHeight = -1
+    private var geometryUploadBuffer: ByteBuffer? = null
+    private var geometryUploadCapacityBytes = 0
+    private var maskParamsUploadBuffer: ByteBuffer? = null
 
     fun drawQuads(
         context: net.fabricmc.fabric.api.client.rendering.v1.world.WorldRenderContext,
@@ -151,6 +154,9 @@ object ShadertoyMaskedWorldRenderer {
         maskSampler = null
         maskWidth = -1
         maskHeight = -1
+        geometryUploadBuffer = null
+        geometryUploadCapacityBytes = 0
+        maskParamsUploadBuffer = null
     }
 
     private fun ensureBuffers(device: com.mojang.blaze3d.systems.GpuDevice, quadCount: Int) {
@@ -223,8 +229,9 @@ object ShadertoyMaskedWorldRenderer {
     }
 
     private fun buildVertexData(quads: List<Quad>): ByteBuffer {
-        val byteBuffer = ByteBuffer.allocateDirect(quads.size * VERTICES_PER_QUAD * VERTEX_STRIDE_FLOATS * 4)
-            .order(ByteOrder.nativeOrder())
+        val requiredBytes = quads.size * VERTICES_PER_QUAD * VERTEX_STRIDE_FLOATS * 4
+        val byteBuffer = ensureGeometryUploadBuffer(requiredBytes)
+        byteBuffer.clear()
         quads.forEach { quad ->
             byteBuffer.putTriangle(quad.ax, quad.ay, quad.az, quad.dx, quad.dy, quad.dz, quad.cx, quad.cy, quad.cz)
             byteBuffer.putTriangle(quad.ax, quad.ay, quad.az, quad.cx, quad.cy, quad.cz, quad.bx, quad.by, quad.bz)
@@ -234,15 +241,14 @@ object ShadertoyMaskedWorldRenderer {
     }
 
     private fun buildMaskParams(alpha: Float): ByteBuffer {
-        return ByteBuffer.allocateDirect(MASK_PARAMS_BYTES)
-            .order(ByteOrder.nativeOrder())
-            .apply {
-                putFloat(1f)
-                putFloat(1f)
-                putFloat(1f)
-                putFloat(alpha.coerceIn(0.01f, 1f))
-                flip()
-            }
+        val byteBuffer = ensureMaskParamsUploadBuffer()
+        byteBuffer.clear()
+        byteBuffer.putFloat(1f)
+        byteBuffer.putFloat(1f)
+        byteBuffer.putFloat(1f)
+        byteBuffer.putFloat(alpha.coerceIn(0.01f, 1f))
+        byteBuffer.flip()
+        return byteBuffer
     }
 
     private fun buildFullscreenQuadData(): ByteBuffer {
@@ -277,5 +283,32 @@ object ShadertoyMaskedWorldRenderer {
         putFloat(x)
         putFloat(y)
         putFloat(z)
+    }
+
+    private fun ensureGeometryUploadBuffer(requiredBytes: Int): ByteBuffer {
+        val existing = geometryUploadBuffer
+        if (existing != null && geometryUploadCapacityBytes >= requiredBytes) {
+            return existing
+        }
+
+        return ByteBuffer.allocateDirect(requiredBytes)
+            .order(ByteOrder.nativeOrder())
+            .also { allocated ->
+                geometryUploadBuffer = allocated
+                geometryUploadCapacityBytes = requiredBytes
+            }
+    }
+
+    private fun ensureMaskParamsUploadBuffer(): ByteBuffer {
+        val existing = maskParamsUploadBuffer
+        if (existing != null) {
+            return existing
+        }
+
+        return ByteBuffer.allocateDirect(MASK_PARAMS_BYTES)
+            .order(ByteOrder.nativeOrder())
+            .also { allocated ->
+                maskParamsUploadBuffer = allocated
+            }
     }
 }

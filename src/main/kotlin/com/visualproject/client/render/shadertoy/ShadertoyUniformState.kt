@@ -13,6 +13,7 @@ class ShadertoyUniformState : AutoCloseable {
     }
 
     private var globalsBuffer: GpuBuffer? = null
+    private var globalsUploadBuffer: ByteBuffer? = null
 
     fun uploadGlobals(
         device: GpuDevice,
@@ -50,6 +51,7 @@ class ShadertoyUniformState : AutoCloseable {
     override fun close() {
         globalsBuffer?.close()
         globalsBuffer = null
+        globalsUploadBuffer = null
     }
 
     private fun ensureGlobalsBuffer(device: GpuDevice): GpuBuffer {
@@ -79,23 +81,24 @@ class ShadertoyUniformState : AutoCloseable {
         mouseClickY: Float,
         channels: List<ShadertoyChannels.ChannelBinding>,
     ): ByteBuffer {
-        return ByteBuffer.allocateDirect(GLOBALS_BYTES)
+        val byteBuffer = globalsUploadBuffer ?: ByteBuffer.allocateDirect(GLOBALS_BYTES)
             .order(ByteOrder.nativeOrder())
-            .apply {
-                putVec4(width.toFloat(), height.toFloat(), 1f, 0f)
-                putVec4(mouseX, mouseY, mouseClickX, mouseClickY)
-                putVec4(timeSeconds, timeDeltaSeconds, frameIndex.toFloat(), 0f)
-                repeat(4) { index ->
-                    val channel = channels.getOrNull(index)
-                    putVec4(
-                        channel?.width?.toFloat() ?: 1f,
-                        channel?.height?.toFloat() ?: 1f,
-                        1f,
-                        0f,
-                    )
-                }
-                flip()
-            }
+            .also { globalsUploadBuffer = it }
+        byteBuffer.clear()
+        byteBuffer.putVec4(width.toFloat(), height.toFloat(), 1f, 0f)
+        byteBuffer.putVec4(mouseX, mouseY, mouseClickX, mouseClickY)
+        byteBuffer.putVec4(timeSeconds, timeDeltaSeconds, frameIndex.toFloat(), 0f)
+        repeat(4) { index ->
+            val channel = channels.getOrNull(index)
+            byteBuffer.putVec4(
+                channel?.width?.toFloat() ?: 1f,
+                channel?.height?.toFloat() ?: 1f,
+                1f,
+                0f,
+            )
+        }
+        byteBuffer.flip()
+        return byteBuffer
     }
 
     private fun ByteBuffer.putVec4(x: Float, y: Float, z: Float, w: Float) {

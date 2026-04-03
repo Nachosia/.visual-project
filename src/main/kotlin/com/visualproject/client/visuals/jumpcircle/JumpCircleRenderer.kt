@@ -105,6 +105,12 @@ object JumpCircleRenderer {
         val maxRadialDistance: Float,
     )
 
+    private data class ShaderMaskBatchKey(
+        val shaderType: JumpCircleModule.ShaderType,
+        val shaderSpeedBits: Int,
+        val shaderAlphaBits: Int,
+    )
+
     private data class SurfaceColumnKey(
         val dimensionId: Identifier,
         val blockX: Int,
@@ -481,7 +487,7 @@ object JumpCircleRenderer {
         if (blockWaveEffects.isEmpty()) return
         val pose = context.matrices().last()
         val quadsByTexture = LinkedHashMap<Identifier, MutableList<WaveQuad>>()
-        val revealQuadsByEffect = LinkedHashMap<BlockWaveEffect, MutableList<ShadertoyMaskedWorldRenderer.Quad>>()
+        val revealQuadsByShader = LinkedHashMap<ShaderMaskBatchKey, MutableList<ShadertoyMaskedWorldRenderer.Quad>>()
         val lineRenderType = RenderTypes.linesTranslucent()
         val lineConsumer = lineBufferSource.getBuffer(lineRenderType)
         var drewLines = false
@@ -540,16 +546,6 @@ object JumpCircleRenderer {
 
                 if (effect.fill) {
                     cells.values.forEach { cell ->
-                        val north = cells[surfaceCellKey(cell.blockX, cell.blockZ - 1)]
-                        val south = cells[surfaceCellKey(cell.blockX, cell.blockZ + 1)]
-                        val west = cells[surfaceCellKey(cell.blockX - 1, cell.blockZ)]
-                        val east = cells[surfaceCellKey(cell.blockX + 1, cell.blockZ)]
-                        val isBoundary =
-                            north == null || abs(north.renderY - cell.renderY) > 0.015 ||
-                            south == null || abs(south.renderY - cell.renderY) > 0.015 ||
-                            west == null || abs(west.renderY - cell.renderY) > 0.015 ||
-                            east == null || abs(east.renderY - cell.renderY) > 0.015
-
                         val minX = cell.blockX.toDouble()
                         val minZ = cell.blockZ.toDouble()
                         val maxX = minX + 1.0
@@ -588,7 +584,12 @@ object JumpCircleRenderer {
                             }
 
                             JumpCircleModule.FillType.SHADER_MASK -> {
-                                revealQuadsByEffect.getOrPut(effect) { ArrayList() } += buildShaderMaskQuad(
+                                val shaderBatchKey = ShaderMaskBatchKey(
+                                    shaderType = effect.shaderType,
+                                    shaderSpeedBits = java.lang.Float.floatToIntBits(effect.shaderSpeed),
+                                    shaderAlphaBits = java.lang.Float.floatToIntBits(effect.shaderAlpha),
+                                )
+                                revealQuadsByShader.getOrPut(shaderBatchKey) { ArrayList() } += buildShaderMaskQuad(
                                     minX = minX,
                                     maxX = maxX,
                                     y = y,
@@ -643,19 +644,19 @@ object JumpCircleRenderer {
             fillBufferSource.endBatch(renderType)
         }
 
-        revealQuadsByEffect.forEach { (effect, quads) ->
+        revealQuadsByShader.forEach { (batch, quads) ->
             if (quads.isEmpty()) return@forEach
             val frame = ShadertoyFrameProvider.currentFrame(
                 client = client,
-                program = effect.shaderType.toProgramDefinition(),
+                program = batch.shaderType.toProgramDefinition(),
                 qualityPreset = com.visualproject.client.visuals.hitbox.HitboxCustomizerModule.quality().preset,
-                timeScale = effect.shaderSpeed,
+                timeScale = Float.fromBits(batch.shaderSpeedBits),
             ) ?: return@forEach
             ShadertoyMaskedWorldRenderer.drawQuads(
                 context = context,
                 frame = frame,
                 quads = quads,
-                alpha = effect.shaderAlpha,
+                alpha = Float.fromBits(batch.shaderAlphaBits),
             )
         }
 
