@@ -1,5 +1,6 @@
 package com.visualproject.client.mixin;
 
+import com.visualproject.client.render.shadertoy.ShadertoyProgramRegistry;
 import com.visualproject.client.render.sdf.SdfShaderRegistry;
 import net.minecraft.client.renderer.GameRenderer;
 import net.minecraft.server.packs.resources.ResourceProvider;
@@ -13,5 +14,6 @@ public class GameRendererMixin {
 	@Inject(method = "preloadUiShader", at = @At("TAIL"))
 	private void visualclient$onPreloadUiShader(ResourceProvider resourceProvider, CallbackInfo ci) {
 		SdfShaderRegistry.INSTANCE.loadCustomShaders(resourceProvider);
+		ShadertoyProgramRegistry.INSTANCE.loadCustomShaders(resourceProvider);
 	}
 }

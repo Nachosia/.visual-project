@@ -14,14 +14,18 @@ import com.visualproject.client.hud.test.TestSdfHud
 import com.visualproject.client.hud.target.TargetHudModule
 import com.visualproject.client.hud.watermark.WatermarkHudModule
 import com.visualproject.client.notifications.NotificationsModule
+import com.visualproject.client.render.shadertoy.ShadertoyProgramRegistry
 import com.visualproject.client.render.sdf.SdfShaderRegistry
 import com.visualproject.client.visuals.chinahat.ChinaHatModule
+import com.visualproject.client.visuals.hitbox.HitboxCustomizerModule
+import com.visualproject.client.visuals.jumpcircle.JumpCircleModule
 import com.visualproject.client.visuals.nimb.NimbModule
 import com.visualproject.client.visuals.time.TimeChangerModule
 import com.visualproject.client.visuals.world.WorldCustomizerModule
 import com.visualproject.client.visuals.worldparticles.WorldParticlesModule
 import net.fabricmc.api.ClientModInitializer
 import net.fabricmc.fabric.api.client.event.lifecycle.v1.ClientTickEvents
+import net.fabricmc.fabric.api.client.event.lifecycle.v1.ClientLifecycleEvents
 import net.fabricmc.fabric.api.client.keybinding.v1.KeyBindingHelper
 import net.fabricmc.fabric.api.client.rendering.v1.HudRenderCallback
 import net.minecraft.client.KeyMapping
@@ -46,6 +50,7 @@ object VisualClientMod : ClientModInitializer {
         ModuleStateStore.ensureModule(sdfTestModuleId, defaultEnabled = false)
         ModuleStateStore.ensureNumberSetting("${sdfTestModuleId}:size", 1.0f)
         SdfShaderRegistry.registerEvent()
+        ShadertoyProgramRegistry.initialize()
         SharedMusicHudRuntime.initialize()
 
         openVisualsMenuKey = KeyBindingHelper.registerKeyBinding(
@@ -77,6 +82,8 @@ object VisualClientMod : ClientModInitializer {
 
         WorldParticlesModule.initialize()
         ChinaHatModule.initialize()
+        HitboxCustomizerModule.initialize()
+        JumpCircleModule.initialize()
         NimbModule.initialize()
         WatermarkHudModule.initialize()
         ArmorHudModule.initialize()
@@ -91,6 +98,9 @@ object VisualClientMod : ClientModInitializer {
         TargetHudModule.initialize()
         TimeChangerModule.initialize()
         WorldCustomizerModule.initialize()
+        ClientLifecycleEvents.CLIENT_STOPPING.register(ClientLifecycleEvents.ClientStopping {
+            ShadertoyProgramRegistry.shutdown()
+        })
 
         LOGGER.info("Visual Client initialized.")
     }

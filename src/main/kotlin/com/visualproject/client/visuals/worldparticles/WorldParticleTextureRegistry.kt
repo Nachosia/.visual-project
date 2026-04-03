@@ -24,13 +24,6 @@ object WorldParticleTextureRegistry {
         val useCutout: Boolean,
     )
 
-    private data class DynamicTextureEntry(
-        val signature: String,
-        val texture: ParticleTexture,
-    )
-
-    private val tintedTextureId = Identifier.fromNamespaceAndPath("visualclient", "world_particles/tinted_runtime")
-
     private val builtinTextures = mapOf(
         WorldParticlesModule.ParticleType.SPARK to ParticleTexture(
             Identifier.fromNamespaceAndPath("visualclient", "textures/world_particles/spark.png"),
@@ -111,7 +104,7 @@ object WorldParticleTextureRegistry {
         ),
     )
 
-    private var dynamicEntry: DynamicTextureEntry? = null
+    private val dynamicTextures = LinkedHashMap<String, ParticleTexture>()
 
     fun resolveTexture(client: Minecraft): ParticleTexture? {
         val type = WorldParticlesModule.ParticleType.fromId(
@@ -121,6 +114,16 @@ object WorldParticleTextureRegistry {
             )
         )
         val tintColor = resolveTintColor()
+        val customFile = ModuleStateStore.getTextSetting(WorldParticlesModule.customFileKey, "")
+        return resolveTexture(client, type, tintColor, customFile)
+    }
+
+    fun resolveTexture(
+        client: Minecraft,
+        type: WorldParticlesModule.ParticleType,
+        tintColor: Int,
+        customFile: String = "",
+    ): ParticleTexture? {
         if (type != WorldParticlesModule.ParticleType.CUSTOM) {
             val source = builtinTextures[type] ?: return null
             return ParticleTexture(
@@ -131,11 +134,11 @@ object WorldParticleTextureRegistry {
                 useCutout = source.useCutout,
             )
         }
-        return resolveCustomTexture(client, tintColor)
+        return resolveCustomTexture(client, tintColor, customFile)
     }
 
-    private fun resolveCustomTexture(client: Minecraft, tintColor: Int): ParticleTexture? {
-        val path = resolveCustomPath() ?: return null
+    private fun resolveCustomTexture(client: Minecraft, tintColor: Int, customFile: String): ParticleTexture? {
+        val path = resolveCustomPath(customFile) ?: return null
         val modified = runCatching { Files.getLastModifiedTime(path).toMillis() }.getOrDefault(0L)
         val image = Files.newInputStream(path).use { input -> ImageIO.read(input) } ?: return null
         return resolveTintedTexture(
@@ -154,26 +157,30 @@ object WorldParticleTextureRegistry {
         tintColor: Int,
         strengthenAlpha: Boolean,
     ): ParticleTexture {
-        dynamicEntry?.takeIf { it.signature == sourceSignature }?.let { return it.texture }
+        dynamicTextures[sourceSignature]?.let { return it }
 
         val tintedImage = tintMaskedImage(sourceImage, tintColor, strengthenAlpha)
+        val textureId = Identifier.fromNamespaceAndPath(
+            "visualclient",
+            "world_particles/tinted_${sourceSignature.hashCode().toUInt().toString(16)}",
+        )
         client.textureManager.register(
-            tintedTextureId,
+            textureId,
             NonDumpableDynamicTexture({ "visualclient-world-particle" }, nativeImageFromBuffered(tintedImage), false),
         )
         val texture = ParticleTexture(
-            textureId = tintedTextureId,
+            textureId = textureId,
             textureWidth = tintedImage.width.coerceAtLeast(1),
             textureHeight = tintedImage.height.coerceAtLeast(1),
             colorRgb = 0x00FFFFFF,
             useCutout = false,
         )
-        dynamicEntry = DynamicTextureEntry(sourceSignature, texture)
+        dynamicTextures[sourceSignature] = texture
         return texture
     }
 
-    private fun resolveCustomPath(): Path? {
-        val requested = ModuleStateStore.getTextSetting(WorldParticlesModule.customFileKey, "")
+    private fun resolveCustomPath(customFile: String): Path? {
+        val requested = customFile
             .trim()
             .substringAfterLast('/')
             .substringAfterLast('\\')

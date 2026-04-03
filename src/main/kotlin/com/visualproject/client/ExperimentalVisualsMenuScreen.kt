@@ -1,4 +1,4 @@
-package com.visualproject.client
+﻿package com.visualproject.client
 
 import com.mojang.blaze3d.platform.NativeImage
 import com.visualproject.client.audio.CustomSoundRegistry
@@ -23,6 +23,9 @@ import com.visualproject.client.ui.menu.drawVerticalGradient
 import com.visualproject.client.ui.menu.fillRoundedRect
 import com.visualproject.client.ui.menu.fitStyledText
 import com.visualproject.client.visuals.chinahat.ChinaHatModule
+import com.visualproject.client.visuals.hitbox.HitboxCustomizerModule
+import com.visualproject.client.visuals.jumpcircle.JumpCircleModule
+import com.visualproject.client.visuals.jumpcircle.JumpCircleTextureRegistry
 import com.visualproject.client.visuals.nimb.NimbModule
 import com.visualproject.client.visuals.time.TimeChangerModule
 import com.visualproject.client.visuals.world.WorldCustomizerModule
@@ -522,6 +525,26 @@ class ExperimentalVisualsMenuScreen : Screen(Component.empty()) {
                         ModuleStateStore.setSettingEnabled(WorldParticlesModule.clientColorKey, false)
                     }
 
+                    JumpCircleModule.circleCustomColorKey -> normalizeHexColor(raw)?.let {
+                        ModuleStateStore.setTextSetting(row.key, it)
+                        ModuleStateStore.setSettingEnabled(JumpCircleModule.circleClientColorKey, false)
+                    }
+
+                    JumpCircleModule.particleCustomColorKey -> normalizeHexColor(raw)?.let {
+                        ModuleStateStore.setTextSetting(row.key, it)
+                        ModuleStateStore.setSettingEnabled(JumpCircleModule.particleClientColorKey, false)
+                    }
+
+                    JumpCircleModule.waveCustomColorKey -> normalizeHexColor(raw)?.let {
+                        ModuleStateStore.setTextSetting(row.key, it)
+                        ModuleStateStore.setSettingEnabled(JumpCircleModule.waveClientColorKey, false)
+                    }
+
+                    JumpCircleModule.waveFillCustomColorKey -> normalizeHexColor(raw)?.let {
+                        ModuleStateStore.setTextSetting(row.key, it)
+                        ModuleStateStore.setSettingEnabled(JumpCircleModule.waveFillClientColorKey, false)
+                    }
+
                     ChinaHatModule.customColorKey -> normalizeHexColor(raw)?.let {
                         ModuleStateStore.setTextSetting(row.key, it)
                         ModuleStateStore.setSettingEnabled(ChinaHatModule.clientColorKey, false)
@@ -999,7 +1022,7 @@ class ExperimentalVisualsMenuScreen : Screen(Component.empty()) {
                 val fill = choiceChipFill(selected, hovered)
                 val border = choiceChipBorder(selected, hovered)
                 drawRoundedPanel(context, option.rect.x, option.rect.y, option.rect.width, option.rect.height, fill, border, 9)
-                val text = vText(option.label)
+                val text = choiceTextComponent(row.key, option.label, option.rect.width - 12)
                 val textWidth = font.width(text)
                 context.drawString(
                     font,
@@ -1028,7 +1051,7 @@ class ExperimentalVisualsMenuScreen : Screen(Component.empty()) {
         val selectedLabel = row.options.firstOrNull { it.value == selectedValue }?.label ?: row.options.firstOrNull()?.label.orEmpty()
         context.drawString(
             font,
-            fitStyledText(font, selectedLabel, row.selectorRect.width - 28),
+            choiceTextComponent(row.key, selectedLabel, row.selectorRect.width - 28),
             row.selectorRect.x + 10,
             row.selectorRect.y + 5,
             menuTextPrimaryColor(),
@@ -1087,7 +1110,7 @@ class ExperimentalVisualsMenuScreen : Screen(Component.empty()) {
             )
             context.drawString(
                 font,
-                fitStyledText(font, option.label, option.rect.width - 16),
+                choiceTextComponent(row.key, option.label, option.rect.width - 16),
                 option.rect.x + 8,
                 option.rect.y + 5,
                 if (selected) menuTextPrimaryColor() else menuTextSecondaryColor(),
@@ -1319,7 +1342,7 @@ class ExperimentalVisualsMenuScreen : Screen(Component.empty()) {
         fun addChoice(key: String, label: String, vararg options: Pair<String, String>) {
             val rect = IntRect(startX, currentY, width, Theme.inputRowHeight)
             val selectorRect = IntRect(rect.x + 10, rect.y + 22, rect.width - 20, 18)
-            val useDropdown = options.size > 4
+            val useDropdown = shouldUseDropdownChoice(key, options.size)
             val layouts = if (useDropdown) {
                 options.mapIndexed { index, option ->
                     ChoiceOptionLayout(
@@ -1362,6 +1385,26 @@ class ExperimentalVisualsMenuScreen : Screen(Component.empty()) {
             addInput(VisualThemeSettings.toggleFillColorKey, "Toggle Fill", "#RRGGBB")
             addInput(VisualThemeSettings.sliderFillColorKey, "Slider Fill", "#RRGGBB")
             addInput(VisualThemeSettings.sliderKnobColorKey, "Slider Knob", "#RRGGBB")
+            addSection("Shader")
+            addToggle(HitboxCustomizerModule.shaderEnabledKey, "Shader Enabled")
+            if (ModuleStateStore.isSettingEnabled(HitboxCustomizerModule.shaderEnabledKey)) {
+                addChoice(
+                    HitboxCustomizerModule.shaderPresetKey,
+                    "Shader Preset",
+                    HitboxCustomizerModule.ShaderPreset.OVERSATURATED_WEB.id to HitboxCustomizerModule.ShaderPreset.OVERSATURATED_WEB.label,
+                    HitboxCustomizerModule.ShaderPreset.STAR_NEST.id to HitboxCustomizerModule.ShaderPreset.STAR_NEST.label,
+                    HitboxCustomizerModule.ShaderPreset.SIMPLEX_NEBULA.id to HitboxCustomizerModule.ShaderPreset.SIMPLEX_NEBULA.label,
+                )
+                addChoice(
+                    HitboxCustomizerModule.qualityKey,
+                    "Shader Quality",
+                    HitboxCustomizerModule.Quality.LOW.id to HitboxCustomizerModule.Quality.LOW.label,
+                    HitboxCustomizerModule.Quality.MEDIUM.id to HitboxCustomizerModule.Quality.MEDIUM.label,
+                    HitboxCustomizerModule.Quality.HIGH.id to HitboxCustomizerModule.Quality.HIGH.label,
+                )
+                addSlider(HitboxCustomizerModule.shaderSpeedKey, "Shader Speed", 0.10f, 4.0f)
+                addSlider(HitboxCustomizerModule.fillAlphaKey, "Shader Alpha", 0.05f, 1.0f)
+            }
             return rows
         }
 
@@ -1492,6 +1535,160 @@ class ExperimentalVisualsMenuScreen : Screen(Component.empty()) {
             return rows
         }
 
+        if (selectedModule.id == HitboxCustomizerModule.moduleId) {
+            addSection("View")
+            addToggle(HitboxCustomizerModule.showFirstPersonKey, "Show In First Person")
+
+            addSection("Bounds")
+            addSlider(HitboxCustomizerModule.inflateKey, "Inflate", 0.0f, 0.75f)
+
+            addSection("Outline")
+            addToggle(HitboxCustomizerModule.outlineKey, "Outline")
+            if (ModuleStateStore.isSettingEnabled(HitboxCustomizerModule.outlineKey)) {
+                addSlider(HitboxCustomizerModule.outlineThicknessKey, "Outline Thickness", 0.5f, 5.0f)
+            }
+            return rows
+        }
+
+        if (selectedModule.id == JumpCircleModule.moduleId) {
+            addChoice(
+                JumpCircleModule.modeKey,
+                "Режим прыжка",
+                JumpCircleModule.Mode.CIRCLE_ONLY.id to JumpCircleModule.Mode.CIRCLE_ONLY.label,
+                JumpCircleModule.Mode.PARTICLES_ONLY.id to JumpCircleModule.Mode.PARTICLES_ONLY.label,
+                JumpCircleModule.Mode.CIRCLE_AND_PARTICLES.id to JumpCircleModule.Mode.CIRCLE_AND_PARTICLES.label,
+                JumpCircleModule.Mode.BLOCK_WAVE.id to JumpCircleModule.Mode.BLOCK_WAVE.label,
+            )
+            addToggle(JumpCircleModule.showFirstPersonKey, "Показывать от первого лица")
+
+            when (JumpCircleModule.mode()) {
+                JumpCircleModule.Mode.CIRCLE_ONLY -> {
+                    addSection("Круг")
+                    addSlider(JumpCircleModule.circleRadiusKey, "Радиус", 0.20f, 12.0f)
+                    addSlider(JumpCircleModule.circleSpeedKey, "Скорость", 0.10f, 20.0f)
+
+                    addSection("Цвет")
+                    addToggle(JumpCircleModule.circleClientColorKey, "Цвет клиента")
+                    addInput(JumpCircleModule.circleCustomColorKey, "Кастомный цвет", "#RRGGBB")
+                }
+
+                JumpCircleModule.Mode.PARTICLES_ONLY -> {
+                    addSection("Частицы")
+                    addChoice(
+                        JumpCircleModule.particleTypeKey,
+                        "Тип частицы",
+                        *JumpCircleModule.particleTypeOptions.map { it.type.id to it.label }.toTypedArray(),
+                    )
+
+                    addSection("Физика")
+                    addChoice(
+                        JumpCircleModule.particlePhysicsKey,
+                        "Режим физики",
+                        JumpCircleModule.ParticlePhysics.REALISTIC.id to JumpCircleModule.ParticlePhysics.REALISTIC.label,
+                        JumpCircleModule.ParticlePhysics.NO_COLLISION.id to JumpCircleModule.ParticlePhysics.NO_COLLISION.label,
+                        JumpCircleModule.ParticlePhysics.NO_PHYSICS.id to JumpCircleModule.ParticlePhysics.NO_PHYSICS.label,
+                        JumpCircleModule.ParticlePhysics.ATTRACTION.id to JumpCircleModule.ParticlePhysics.ATTRACTION.label,
+                    )
+                    addSlider(JumpCircleModule.particleCountKey, "Количество частиц", 1f, 40f)
+                    addSlider(JumpCircleModule.particleSizeKey, "Размер частицы", 0.05f, 1.50f)
+                    addSlider(JumpCircleModule.particleLifetimeKey, "Время жизни", 4f, 240f)
+                    addSlider(JumpCircleModule.particleSpreadKey, "Сила разлёта", 0.01f, 2.50f)
+
+                    addSection("Цвет")
+                    addToggle(JumpCircleModule.particleClientColorKey, "Цвет клиента")
+                    addInput(JumpCircleModule.particleCustomColorKey, "Кастомный цвет", "#RRGGBB")
+                    if (JumpCircleModule.particleType() == WorldParticlesModule.ParticleType.CUSTOM) {
+                        addSection("Кастом")
+                        addInput(JumpCircleModule.particleCustomFileKey, "Файл частицы", "Visual/par/name.png")
+                    }
+                }
+
+                JumpCircleModule.Mode.CIRCLE_AND_PARTICLES -> {
+                    addSection("Круг")
+                    addSlider(JumpCircleModule.circleRadiusKey, "Радиус", 0.20f, 12.0f)
+                    addSlider(JumpCircleModule.circleSpeedKey, "Скорость", 0.10f, 20.0f)
+
+                    addSection("Цвет круга")
+                    addToggle(JumpCircleModule.circleClientColorKey, "Цвет клиента")
+                    addInput(JumpCircleModule.circleCustomColorKey, "Кастомный цвет", "#RRGGBB")
+
+                    addSection("Частицы")
+                    addChoice(
+                        JumpCircleModule.particleTypeKey,
+                        "Тип частицы",
+                        *JumpCircleModule.particleTypeOptions.map { it.type.id to it.label }.toTypedArray(),
+                    )
+
+                    addSection("Физика частиц")
+                    addChoice(
+                        JumpCircleModule.particlePhysicsKey,
+                        "Режим физики",
+                        JumpCircleModule.ParticlePhysics.REALISTIC.id to JumpCircleModule.ParticlePhysics.REALISTIC.label,
+                        JumpCircleModule.ParticlePhysics.NO_COLLISION.id to JumpCircleModule.ParticlePhysics.NO_COLLISION.label,
+                        JumpCircleModule.ParticlePhysics.NO_PHYSICS.id to JumpCircleModule.ParticlePhysics.NO_PHYSICS.label,
+                        JumpCircleModule.ParticlePhysics.ATTRACTION.id to JumpCircleModule.ParticlePhysics.ATTRACTION.label,
+                    )
+                    addSlider(JumpCircleModule.particleCountKey, "Количество частиц", 1f, 40f)
+                    addSlider(JumpCircleModule.particleSizeKey, "Размер частицы", 0.05f, 1.50f)
+                    addSlider(JumpCircleModule.particleLifetimeKey, "Время жизни", 4f, 240f)
+                    addSlider(JumpCircleModule.particleSpreadKey, "Сила разлёта", 0.01f, 2.50f)
+
+                    addSection("Цвет частиц")
+                    addToggle(JumpCircleModule.particleClientColorKey, "Цвет клиента")
+                    addInput(JumpCircleModule.particleCustomColorKey, "Кастомный цвет", "#RRGGBB")
+                    if (JumpCircleModule.particleType() == WorldParticlesModule.ParticleType.CUSTOM) {
+                        addSection("Кастом")
+                        addInput(JumpCircleModule.particleCustomFileKey, "Файл частицы", "Visual/par/name.png")
+                    }
+                }
+
+                JumpCircleModule.Mode.BLOCK_WAVE -> {
+                    addSection("Волна")
+                    addSlider(JumpCircleModule.waveRadiusKey, "Радиус волны", 2f, 96f)
+                    addSlider(JumpCircleModule.waveSpeedKey, "Скорость волны", 0.5f, 60f)
+                    addSlider(JumpCircleModule.waveThicknessKey, "Толщина кольца", 0.20f, 8.0f)
+
+                    addSection("Обводка")
+                    addToggle(JumpCircleModule.waveOutlineKey, "Обводка")
+                    if (ModuleStateStore.isSettingEnabled(JumpCircleModule.waveOutlineKey)) {
+                        addSlider(JumpCircleModule.waveLineThicknessKey, "Толщина линий", 0.50f, 5.0f)
+                        addToggle(JumpCircleModule.waveClientColorKey, "Цвет обводки")
+                        addInput(JumpCircleModule.waveCustomColorKey, "Кастомный цвет обводки", "#RRGGBB")
+                    }
+
+                    addSection("Заливка")
+                    addToggle(JumpCircleModule.waveFillKey, "Заливка")
+                    if (ModuleStateStore.isSettingEnabled(JumpCircleModule.waveFillKey)) {
+                        addChoice(
+                            JumpCircleModule.waveFillTypeKey,
+                            "Режим заливки",
+                            JumpCircleModule.FillType.COLOR.id to JumpCircleModule.FillType.COLOR.label,
+                            JumpCircleModule.FillType.SHADER_MASK.id to JumpCircleModule.FillType.SHADER_MASK.label,
+                        )
+                        when (JumpCircleModule.waveFillType()) {
+                            JumpCircleModule.FillType.COLOR -> {
+                                addToggle(JumpCircleModule.waveFillClientColorKey, "Цвет заливки")
+                                addInput(JumpCircleModule.waveFillCustomColorKey, "Кастомный цвет заливки", "#RRGGBB")
+                                addSlider(JumpCircleModule.waveFillAlphaKey, "Прозрачность заливки", 0.02f, 1.0f)
+                            }
+
+                            JumpCircleModule.FillType.SHADER_MASK -> {
+                                addChoice(
+                                    JumpCircleModule.waveShaderTypeKey,
+                                    "Тип шейдера",
+                                    JumpCircleModule.ShaderType.NEBULA.id to JumpCircleModule.ShaderType.NEBULA.label,
+                                    JumpCircleModule.ShaderType.STARS.id to JumpCircleModule.ShaderType.STARS.label,
+                                    JumpCircleModule.ShaderType.WEB.id to JumpCircleModule.ShaderType.WEB.label,
+                                )
+                                addSlider(JumpCircleModule.waveShaderSpeedKey, "Скорость шейдера", 0.05f, 6.0f)
+                                addSlider(JumpCircleModule.waveShaderAlphaKey, "Прозрачность шейдера", 0.02f, 1.0f)
+                            }
+                        }
+                    }
+                }
+            }
+            return rows
+        }
         if (selectedModule.id == ChinaHatModule.moduleId) {
             addChoice(
                 ChinaHatModule.shapeKey,
@@ -1750,11 +1947,16 @@ class ExperimentalVisualsMenuScreen : Screen(Component.empty()) {
             "gif_hud:chroma_key_color" -> ModuleStateStore.getTextSetting(key, "#00FF00")
             WorldCustomizerModule.customSkyColorKey -> ModuleStateStore.getTextSetting(key, "#4B5DFF")
             WorldParticlesModule.customColorKey -> ModuleStateStore.getTextSetting(key, "#B31284")
+            JumpCircleModule.circleCustomColorKey -> ModuleStateStore.getTextSetting(key, "#FFFFFF")
+            JumpCircleModule.particleCustomColorKey -> ModuleStateStore.getTextSetting(key, "#FFFFFF")
+            JumpCircleModule.waveCustomColorKey -> ModuleStateStore.getTextSetting(key, "#FFFFFF")
+            JumpCircleModule.waveFillCustomColorKey -> ModuleStateStore.getTextSetting(key, "#FFFFFF")
             ChinaHatModule.customColorKey -> ModuleStateStore.getTextSetting(key, "#6A8CFF")
             ChinaHatModule.gradientColorKey -> ModuleStateStore.getTextSetting(key, "#FF00FC")
             NimbModule.customColorKey -> ModuleStateStore.getTextSetting(key, "#FFFFFF")
             NimbModule.gradientColorKey -> ModuleStateStore.getTextSetting(key, "#8A71FF")
             WorldParticlesModule.customFileKey -> ModuleStateStore.getTextSetting(key, "")
+            JumpCircleModule.particleCustomFileKey -> ModuleStateStore.getTextSetting(key, "")
             WatermarkHudModule.customLabelKey -> ModuleStateStore.getTextSetting(key, "Developer")
             else -> ModuleStateStore.getTextSetting(key, "")
         }
@@ -1769,6 +1971,10 @@ class ExperimentalVisualsMenuScreen : Screen(Component.empty()) {
             key == "gif_hud:chroma_key_color" ||
             key == WorldCustomizerModule.customSkyColorKey ||
             key == WorldParticlesModule.customColorKey ||
+            key == JumpCircleModule.circleCustomColorKey ||
+            key == JumpCircleModule.particleCustomColorKey ||
+            key == JumpCircleModule.waveCustomColorKey ||
+            key == JumpCircleModule.waveFillCustomColorKey ||
             key == ChinaHatModule.customColorKey ||
             key == ChinaHatModule.gradientColorKey ||
             key == NimbModule.customColorKey ||
@@ -1804,7 +2010,13 @@ class ExperimentalVisualsMenuScreen : Screen(Component.empty()) {
             swatch.y,
             swatch.width,
             swatch.height,
-            if (row.key == WorldParticlesModule.customColorKey) {
+            if (
+                row.key == WorldParticlesModule.customColorKey ||
+                row.key == JumpCircleModule.particleCustomColorKey ||
+                row.key == JumpCircleModule.circleCustomColorKey ||
+                row.key == JumpCircleModule.waveCustomColorKey ||
+                row.key == JumpCircleModule.waveFillCustomColorKey
+            ) {
                 0xFF121821.toInt()
             } else if (isLightMenuTheme()) {
                 0xEEF5F8FE.toInt()
@@ -1816,6 +2028,14 @@ class ExperimentalVisualsMenuScreen : Screen(Component.empty()) {
         )
         if (row.key == WorldParticlesModule.customColorKey) {
             drawWorldParticlePreview(context, IntRect(swatch.x + 2, swatch.y + 2, swatch.width - 4, swatch.height - 4))
+        } else if (row.key == JumpCircleModule.particleCustomColorKey) {
+            drawJumpCircleParticlePreview(context, IntRect(swatch.x + 2, swatch.y + 2, swatch.width - 4, swatch.height - 4))
+        } else if (row.key == JumpCircleModule.circleCustomColorKey) {
+            drawJumpCircleRingPreview(context, IntRect(swatch.x + 2, swatch.y + 2, swatch.width - 4, swatch.height - 4))
+        } else if (row.key == JumpCircleModule.waveCustomColorKey) {
+            drawJumpCircleWaveOutlinePreview(context, IntRect(swatch.x + 2, swatch.y + 2, swatch.width - 4, swatch.height - 4))
+        } else if (row.key == JumpCircleModule.waveFillCustomColorKey) {
+            drawJumpCircleWaveFillPreview(context, IntRect(swatch.x + 2, swatch.y + 2, swatch.width - 4, swatch.height - 4))
         } else {
             fillRoundedRect(context, swatch.x + 3, swatch.y + 3, swatch.width - 6, swatch.height - 6, 4, color)
         }
@@ -1878,6 +2098,18 @@ class ExperimentalVisualsMenuScreen : Screen(Component.empty()) {
         if (key == WorldParticlesModule.customColorKey) {
             ModuleStateStore.setSettingEnabled(WorldParticlesModule.clientColorKey, false)
         }
+        if (key == JumpCircleModule.circleCustomColorKey) {
+            ModuleStateStore.setSettingEnabled(JumpCircleModule.circleClientColorKey, false)
+        }
+        if (key == JumpCircleModule.particleCustomColorKey) {
+            ModuleStateStore.setSettingEnabled(JumpCircleModule.particleClientColorKey, false)
+        }
+        if (key == JumpCircleModule.waveCustomColorKey) {
+            ModuleStateStore.setSettingEnabled(JumpCircleModule.waveClientColorKey, false)
+        }
+        if (key == JumpCircleModule.waveFillCustomColorKey) {
+            ModuleStateStore.setSettingEnabled(JumpCircleModule.waveFillClientColorKey, false)
+        }
         if (key == ChinaHatModule.customColorKey) {
             ModuleStateStore.setSettingEnabled(ChinaHatModule.clientColorKey, false)
         }
@@ -1897,6 +2129,10 @@ class ExperimentalVisualsMenuScreen : Screen(Component.empty()) {
             "gif_hud:chroma_key_color" -> parseColorSetting(ModuleStateStore.getTextSetting(key, "#00FF00"), 0xFF00FF00.toInt())
             WorldCustomizerModule.customSkyColorKey -> parseColorSetting(ModuleStateStore.getTextSetting(key, "#4B5DFF"), 0xFF4B5DFF.toInt())
             WorldParticlesModule.customColorKey -> parseColorSetting(ModuleStateStore.getTextSetting(key, "#B31284"), 0xFFB31284.toInt())
+            JumpCircleModule.circleCustomColorKey -> parseColorSetting(ModuleStateStore.getTextSetting(key, "#FFFFFF"), 0xFFFFFFFF.toInt())
+            JumpCircleModule.particleCustomColorKey -> parseColorSetting(ModuleStateStore.getTextSetting(key, "#FFFFFF"), 0xFFFFFFFF.toInt())
+            JumpCircleModule.waveCustomColorKey -> parseColorSetting(ModuleStateStore.getTextSetting(key, "#FFFFFF"), 0xFFFFFFFF.toInt())
+            JumpCircleModule.waveFillCustomColorKey -> parseColorSetting(ModuleStateStore.getTextSetting(key, "#FFFFFF"), 0xFFFFFFFF.toInt())
             ChinaHatModule.customColorKey -> parseColorSetting(ModuleStateStore.getTextSetting(key, "#6A8CFF"), 0xFF6A8CFF.toInt())
             ChinaHatModule.gradientColorKey -> parseColorSetting(ModuleStateStore.getTextSetting(key, "#FF00FC"), 0xFFFF00FC.toInt())
             NimbModule.customColorKey -> parseColorSetting(ModuleStateStore.getTextSetting(key, "#FFFFFF"), 0xFFFFFFFF.toInt())
@@ -1920,6 +2156,10 @@ class ExperimentalVisualsMenuScreen : Screen(Component.empty()) {
             "gif_hud:chroma_key_color" -> "Chroma Key Color"
             WorldCustomizerModule.customSkyColorKey -> "Custom Sky Color"
             WorldParticlesModule.customColorKey -> "Custom Particle Color"
+            JumpCircleModule.circleCustomColorKey -> "Jump Circle Color"
+            JumpCircleModule.particleCustomColorKey -> "Jump Circle Particle Color"
+            JumpCircleModule.waveCustomColorKey -> "Jump Circle Wave Outline Color"
+            JumpCircleModule.waveFillCustomColorKey -> "Jump Circle Wave Fill Color"
             ChinaHatModule.customColorKey -> "Custom China Hat Color"
             ChinaHatModule.gradientColorKey -> "China Hat Gradient Color"
             NimbModule.customColorKey -> "Custom Nimb Color"
@@ -1962,8 +2202,12 @@ class ExperimentalVisualsMenuScreen : Screen(Component.empty()) {
             4,
         )
 
-        val currentColor = currentThemeColorForKey(activeThemeColorKey ?: return)
-        val particlePreview = activeThemeColorKey == WorldParticlesModule.customColorKey
+        val currentKey = activeThemeColorKey ?: return
+        val currentColor = currentThemeColorForKey(currentKey)
+        val particlePreview = currentKey == WorldParticlesModule.customColorKey || currentKey == JumpCircleModule.particleCustomColorKey
+        val jumpCirclePreview = currentKey == JumpCircleModule.circleCustomColorKey ||
+            currentKey == JumpCircleModule.waveCustomColorKey ||
+            currentKey == JumpCircleModule.waveFillCustomColorKey
         SdfPanelRenderer.draw(
             context,
             picker.previewRect.x,
@@ -1973,6 +2217,8 @@ class ExperimentalVisualsMenuScreen : Screen(Component.empty()) {
             SdfPanelStyle(
                 baseColor = if (particlePreview) {
                     0xFF121821.toInt()
+                } else if (jumpCirclePreview) {
+                    0xFF121821.toInt()
                 } else if (isTransparentMenuTheme()) {
                     0x6C1E2633
                 } else if (isLightMenuTheme()) {
@@ -1981,6 +2227,8 @@ class ExperimentalVisualsMenuScreen : Screen(Component.empty()) {
                     0xFF111A2D.toInt()
                 },
                 borderColor = if (particlePreview) {
+                    0xFF33415A.toInt()
+                } else if (jumpCirclePreview) {
                     0xFF33415A.toInt()
                 } else if (isTransparentMenuTheme()) {
                     blendColor(0xFF697383.toInt(), currentColor, 0.20f)
@@ -1992,13 +2240,13 @@ class ExperimentalVisualsMenuScreen : Screen(Component.empty()) {
                 borderWidthPx = 1f,
                 radiusPx = 16f,
                 innerGlow = SdfGlowStyle(0xFFFFFFFF.toInt(), radiusPx = 8f, strength = 0.02f, opacity = 0.02f),
-                outerGlow = if (particlePreview) {
+                outerGlow = if (particlePreview || jumpCirclePreview) {
                     SdfGlowStyle(0x00000000, radiusPx = 0f, strength = 0f, opacity = 0f)
                 } else {
                     menuGlow(currentColor, radiusPx = 16f, strength = if (isLightMenuTheme()) 0.08f else 0.12f, opacity = if (isLightMenuTheme()) 0.06f else 0.08f)
                 },
                 shade = if (isTransparentMenuTheme()) SdfShadeStyle(0x04FFFFFF, 0x10000000) else if (isLightMenuTheme()) SdfShadeStyle(0x08FFFFFF, 0x0CD2DDEC) else SdfShadeStyle(0x0EFFFFFF, 0x14000000),
-                neonBorder = if (particlePreview) {
+                neonBorder = if (particlePreview || jumpCirclePreview) {
                     SdfNeonBorderStyle(0x00000000, widthPx = 0f, softnessPx = 0f, strength = 0f)
                 } else {
                     menuNeonBorder(
@@ -2011,19 +2259,43 @@ class ExperimentalVisualsMenuScreen : Screen(Component.empty()) {
             ),
         )
         if (particlePreview) {
-            drawWorldParticlePreview(
-                context,
-                IntRect(
-                    picker.previewRect.x + 10,
-                    picker.previewRect.y + 10,
-                    picker.previewRect.width - 20,
-                    picker.previewRect.height - 20,
-                ),
+            if (currentKey == JumpCircleModule.particleCustomColorKey) {
+                drawJumpCircleParticlePreview(
+                    context,
+                    IntRect(
+                        picker.previewRect.x + 10,
+                        picker.previewRect.y + 10,
+                        picker.previewRect.width - 20,
+                        picker.previewRect.height - 20,
+                    ),
+                )
+            } else {
+                drawWorldParticlePreview(
+                    context,
+                    IntRect(
+                        picker.previewRect.x + 10,
+                        picker.previewRect.y + 10,
+                        picker.previewRect.width - 20,
+                        picker.previewRect.height - 20,
+                    ),
+                )
+            }
+        } else if (jumpCirclePreview) {
+            val previewBounds = IntRect(
+                picker.previewRect.x + 10,
+                picker.previewRect.y + 10,
+                picker.previewRect.width - 20,
+                picker.previewRect.height - 20,
             )
+            when (currentKey) {
+                JumpCircleModule.circleCustomColorKey -> drawJumpCircleRingPreview(context, previewBounds)
+                JumpCircleModule.waveCustomColorKey -> drawJumpCircleWaveOutlinePreview(context, previewBounds)
+                JumpCircleModule.waveFillCustomColorKey -> drawJumpCircleWaveFillPreview(context, previewBounds)
+            }
         } else {
             fillRoundedRect(context, picker.previewRect.x + 12, picker.previewRect.y + 12, picker.previewRect.width - 24, picker.previewRect.height - 24, 14, currentColor)
         }
-        context.drawString(font, vText(settingValueFor(activeThemeColorKey ?: "")), picker.previewRect.x - 2, picker.previewRect.y + picker.previewRect.height + 12, menuTextPrimaryColor(), false)
+        context.drawString(font, vText(settingValueFor(currentKey)), picker.previewRect.x - 2, picker.previewRect.y + picker.previewRect.height + 12, menuTextPrimaryColor(), false)
 
         val closeHovered = picker.bounds.contains(mouseX, mouseY).not()
         context.drawString(font, vText(if (closeHovered) "Click outside to close" else "Release mouse to finish"), picker.bounds.x + 18, picker.bounds.y + picker.bounds.height - 18, menuTextDimColor(), false)
@@ -2110,7 +2382,99 @@ class ExperimentalVisualsMenuScreen : Screen(Component.empty()) {
     }
 
     private fun drawWorldParticlePreview(context: GuiGraphics, bounds: IntRect) {
-        val texture = WorldParticleTextureRegistry.resolveTexture(Minecraft.getInstance()) ?: return
+        drawParticlePreviewTexture(context, bounds, WorldParticleTextureRegistry.resolveTexture(Minecraft.getInstance()))
+    }
+
+    private fun drawJumpCircleParticlePreview(context: GuiGraphics, bounds: IntRect) {
+        val client = Minecraft.getInstance()
+        val texture = WorldParticleTextureRegistry.resolveTexture(
+            client = client,
+            type = JumpCircleModule.particleType(),
+            tintColor = JumpCircleModule.particleColor(),
+            customFile = JumpCircleModule.particleCustomFile(),
+        )
+        drawParticlePreviewTexture(context, bounds, texture)
+    }
+
+    private fun drawJumpCircleRingPreview(context: GuiGraphics, bounds: IntRect) {
+        val client = Minecraft.getInstance()
+        context.blit(
+            RenderPipelines.GUI_TEXTURED,
+            JumpCircleTextureRegistry.resolveRingTexture(client),
+            bounds.x,
+            bounds.y,
+            0f,
+            0f,
+            bounds.width,
+            bounds.height,
+            bounds.width,
+            bounds.height,
+            bounds.width,
+            bounds.height,
+            0xFF000000.toInt() or (JumpCircleModule.circleColor() and 0x00FFFFFF),
+        )
+    }
+
+    private fun drawJumpCircleWaveOutlinePreview(context: GuiGraphics, bounds: IntRect) {
+        val fillColor = (0x52 shl 24) or (JumpCircleModule.waveFillColor() and 0x00FFFFFF)
+        drawJumpCircleWaveTilePreview(
+            context = context,
+            bounds = bounds,
+            fillColor = fillColor,
+            outlineColor = 0xFF000000.toInt() or (JumpCircleModule.waveColor() and 0x00FFFFFF),
+        )
+    }
+
+    private fun drawJumpCircleWaveFillPreview(context: GuiGraphics, bounds: IntRect) {
+        val outlineColor = if (ModuleStateStore.isSettingEnabled(JumpCircleModule.waveOutlineKey)) {
+            (0xD8 shl 24) or (JumpCircleModule.waveColor() and 0x00FFFFFF)
+        } else {
+            0
+        }
+        drawJumpCircleWaveTilePreview(
+            context = context,
+            bounds = bounds,
+            fillColor = 0xFF000000.toInt() or (JumpCircleModule.waveFillColor() and 0x00FFFFFF),
+            outlineColor = outlineColor,
+        )
+    }
+
+    private fun drawJumpCircleWaveTilePreview(
+        context: GuiGraphics,
+        bounds: IntRect,
+        fillColor: Int,
+        outlineColor: Int,
+    ) {
+        val tileWidth = max(4, (bounds.width - 6) / 3)
+        val tileHeight = max(4, bounds.height - 10)
+        val startX = bounds.x + ((bounds.width - ((tileWidth * 3) + 2)) / 2)
+        val startY = bounds.y + ((bounds.height - tileHeight) / 2)
+
+        repeat(3) { index ->
+            val x = startX + (index * (tileWidth + 1))
+            val y = startY + if (index == 1) 0 else 1
+            val height = tileHeight - if (index == 1) 0 else 2
+            val borderColor = if (outlineColor == 0) {
+                0xFF223047.toInt()
+            } else {
+                outlineColor
+            }
+            fillRoundedRect(context, x, y, tileWidth, height, 2, borderColor)
+            val innerX = x + 1
+            val innerY = y + 1
+            val innerWidth = (tileWidth - 2).coerceAtLeast(1)
+            val innerHeight = (height - 2).coerceAtLeast(1)
+            fillRoundedRect(context, innerX, innerY, innerWidth, innerHeight, 2, 0xFF121821.toInt())
+            fillRoundedRect(context, innerX, innerY, innerWidth, innerHeight, 2, fillColor)
+        }
+    }
+
+    private fun drawParticlePreviewTexture(
+        context: GuiGraphics,
+        bounds: IntRect,
+        texture: WorldParticleTextureRegistry.ParticleTexture?,
+    ) {
+        texture ?: return
         val innerWidth = (bounds.width - 2).coerceAtLeast(1)
         val innerHeight = (bounds.height - 2).coerceAtLeast(1)
         val scale = min(
@@ -2174,10 +2538,40 @@ class ExperimentalVisualsMenuScreen : Screen(Component.empty()) {
         return if (raw.isBlank()) fallback else raw
     }
 
+    private fun shouldUseDropdownChoice(key: String, optionCount: Int): Boolean {
+        if (optionCount > 4) return true
+        return key == JumpCircleModule.modeKey ||
+            key == JumpCircleModule.particlePhysicsKey
+    }
+
+    private fun choiceTextComponent(key: String, value: String, maxWidth: Int): Component {
+        val safeWidth = maxWidth.coerceAtLeast(12)
+        val plain = key.startsWith("${JumpCircleModule.moduleId}:")
+
+        fun render(text: String): Component {
+            return if (plain) Component.literal(text) else vText(text)
+        }
+
+        val full = render(value)
+        if (font.width(full) <= safeWidth) return full
+
+        var trimmed = value
+        while (trimmed.isNotEmpty()) {
+            val candidate = render("$trimmed...")
+            if (font.width(candidate) <= safeWidth) return candidate
+            trimmed = trimmed.dropLast(1)
+        }
+
+        return render("...")
+    }
+
     private fun choiceAffectsLayout(key: String): Boolean {
         return key == VisualThemeSettings.menuPresetKey ||
             key == VisualThemeSettings.themeFontKey ||
             key == WatermarkHudModule.typeKey ||
+            key == JumpCircleModule.modeKey ||
+            key == JumpCircleModule.particleTypeKey ||
+            key == JumpCircleModule.waveFillTypeKey ||
             key == ChinaHatModule.shapeKey ||
             key == WorldParticlesModule.particleTypeKey ||
             key == NotificationsSettings.modeKey ||
@@ -2186,7 +2580,11 @@ class ExperimentalVisualsMenuScreen : Screen(Component.empty()) {
     }
 
     private fun toggleAffectsLayout(key: String): Boolean {
-        return key == NimbModule.gradientKey ||
+        return key == JumpCircleModule.waveOutlineKey ||
+            key == JumpCircleModule.waveFillKey ||
+            key == HitboxCustomizerModule.shaderEnabledKey ||
+            key == HitboxCustomizerModule.outlineKey ||
+            key == NimbModule.gradientKey ||
             key == ChinaHatModule.gradientKey
     }
 
@@ -2263,6 +2661,23 @@ class ExperimentalVisualsMenuScreen : Screen(Component.empty()) {
         val value = when (row.key) {
             "gif_hud:chroma_key_strength" -> (kotlin.math.round(rawValue * 100f) / 100f)
             "gif_hud:scale" -> (kotlin.math.round(rawValue * 10f) / 10f)
+            HitboxCustomizerModule.outlineThicknessKey,
+            HitboxCustomizerModule.inflateKey -> kotlin.math.round(rawValue * 100f) / 100f
+            HitboxCustomizerModule.fillAlphaKey,
+            HitboxCustomizerModule.shaderSpeedKey -> kotlin.math.round(rawValue * 100f) / 100f
+            JumpCircleModule.particleCountKey,
+            JumpCircleModule.particleLifetimeKey,
+            JumpCircleModule.waveRadiusKey -> kotlin.math.round(rawValue)
+            JumpCircleModule.circleRadiusKey,
+            JumpCircleModule.circleSpeedKey,
+            JumpCircleModule.waveSpeedKey,
+            JumpCircleModule.waveThicknessKey,
+            JumpCircleModule.waveLineThicknessKey,
+            JumpCircleModule.waveShaderSpeedKey -> kotlin.math.round(rawValue * 10f) / 10f
+            JumpCircleModule.particleSizeKey,
+            JumpCircleModule.particleSpreadKey,
+            JumpCircleModule.waveFillAlphaKey,
+            JumpCircleModule.waveShaderAlphaKey -> kotlin.math.round(rawValue * 100f) / 100f
             NotificationsSettings.globalCustomSoundVolumeKey,
             NotificationsSettings.moduleEnableSoundVolumeKey,
             NotificationsSettings.moduleDisableSoundVolumeKey,
@@ -2293,6 +2708,23 @@ class ExperimentalVisualsMenuScreen : Screen(Component.empty()) {
         return when (key) {
             "gif_hud:chroma_key_strength" -> "${(value * 100f).roundToInt()}%"
             "gif_hud:scale" -> "${String.format(java.util.Locale.US, "%.1f", value)}x"
+            HitboxCustomizerModule.fillAlphaKey,
+            HitboxCustomizerModule.shaderSpeedKey,
+            HitboxCustomizerModule.outlineThicknessKey,
+            HitboxCustomizerModule.inflateKey -> String.format(java.util.Locale.US, "%.2f", value)
+            JumpCircleModule.particleCountKey,
+            JumpCircleModule.particleLifetimeKey,
+            JumpCircleModule.waveRadiusKey -> value.roundToInt().toString()
+            JumpCircleModule.circleRadiusKey,
+            JumpCircleModule.circleSpeedKey,
+            JumpCircleModule.waveSpeedKey,
+            JumpCircleModule.waveThicknessKey,
+            JumpCircleModule.waveLineThicknessKey,
+            JumpCircleModule.waveShaderSpeedKey -> String.format(java.util.Locale.US, "%.1f", value)
+            JumpCircleModule.particleSizeKey,
+            JumpCircleModule.particleSpreadKey,
+            JumpCircleModule.waveFillAlphaKey,
+            JumpCircleModule.waveShaderAlphaKey -> String.format(java.util.Locale.US, "%.2f", value)
             NotificationsSettings.globalCustomSoundVolumeKey,
             NotificationsSettings.moduleEnableSoundVolumeKey,
             NotificationsSettings.moduleDisableSoundVolumeKey,
@@ -2956,3 +3388,4 @@ class ExperimentalVisualsMenuScreen : Screen(Component.empty()) {
         return super.mouseReleased(mouseButtonEvent)
     }
 }
+
