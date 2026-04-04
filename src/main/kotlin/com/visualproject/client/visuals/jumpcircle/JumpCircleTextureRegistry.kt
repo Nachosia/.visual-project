@@ -11,7 +11,6 @@ import java.io.ByteArrayOutputStream
 import java.util.EnumMap
 import javax.imageio.ImageIO
 import kotlin.math.sqrt
-import kotlin.math.pow
 
 object JumpCircleTextureRegistry {
     private const val ringTextureSize = 512
@@ -76,25 +75,7 @@ object JumpCircleTextureRegistry {
     }
 
     private fun buildMaskedCircleTexture(sourceImage: BufferedImage): BufferedImage {
-        val masked = MaskedTextureConversions.buildWhiteMask(sourceImage)
-        val width = masked.width
-        val height = masked.height
-        val cutoff = 18
-        for (y in 0 until height) {
-            for (x in 0 until width) {
-                val argb = masked.getRGB(x, y)
-                val alpha = (argb ushr 24) and 0xFF
-                if (alpha < cutoff) {
-                    masked.setRGB(x, y, 0)
-                } else {
-                    // Boost mask alpha so circle brightness matches particle brightness better.
-                    val normalized = ((alpha - cutoff) / (255f - cutoff)).coerceIn(0f, 1f)
-                    val boostedAlpha = (normalized.pow(0.72f) * 255f).toInt().coerceIn(0, 255)
-                    masked.setRGB(x, y, (boostedAlpha shl 24) or 0x00FFFFFF)
-                }
-            }
-        }
-        return masked
+        return MaskedTextureConversions.buildWhiteMask(sourceImage)
     }
 
     private fun ringAlpha(distance: Float): Int {
