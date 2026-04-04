@@ -138,12 +138,15 @@ object JumpCircleModule {
     enum class CircleTextureStyle(val id: String, val label: String) {
         DEFAULT("default", "Default"),
         BOLD("bold", "Bold"),
-        PORTAL("portal", "Portal"),
-        SOUP("soup", "Soup");
+        PORTAL("portal", "Portal");
 
         companion object {
             fun fromId(raw: String): CircleTextureStyle {
-                return entries.firstOrNull { it.id.equals(raw.trim(), ignoreCase = true) } ?: DEFAULT
+                val normalized = raw.trim()
+                if (normalized.equals("soup", ignoreCase = true)) {
+                    return DEFAULT
+                }
+                return entries.firstOrNull { it.id.equals(normalized, ignoreCase = true) } ?: DEFAULT
             }
         }
     }

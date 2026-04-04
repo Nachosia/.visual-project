@@ -1,15 +1,17 @@
 package com.visualproject.client.visuals.worldparticles
 
+import com.mojang.blaze3d.vertex.ByteBufferBuilder
 import com.mojang.math.Axis
 import com.visualproject.client.ModuleStateStore
+import com.visualproject.client.VisualThemeSettings
 import net.fabricmc.fabric.api.client.event.lifecycle.v1.ClientTickEvents
 import net.fabricmc.fabric.api.client.rendering.v1.world.WorldRenderContext
 import net.fabricmc.fabric.api.client.rendering.v1.world.WorldRenderEvents
 import net.minecraft.client.Minecraft
+import net.minecraft.client.multiplayer.ClientLevel
 import net.minecraft.client.renderer.MultiBufferSource
 import net.minecraft.client.renderer.rendertype.RenderTypes
 import net.minecraft.core.BlockPos
-import com.mojang.blaze3d.vertex.ByteBufferBuilder
 import org.joml.Quaternionf
 import org.joml.Vector3f
 import kotlin.math.PI
@@ -17,6 +19,7 @@ import kotlin.math.abs
 import kotlin.math.cos
 import kotlin.math.max
 import kotlin.math.sin
+import kotlin.math.sqrt
 import kotlin.random.Random
 
 object WorldParticlesRenderer {
@@ -29,7 +32,7 @@ object WorldParticlesRenderer {
         val y: Double,
         val z: Double,
         val halfSize: Float,
-        val color: Int,
+        val cornerColors: IntArray,
         val rotationRadians: Float,
         val distanceSq: Double,
     )
@@ -47,7 +50,7 @@ object WorldParticlesRenderer {
         var age: Int,
         val lifetime: Int,
         val size: Float,
-        val color: Int,
+        val colorOffset: Int,
         var prevRotation: Float,
         var rotation: Float,
         var rotationVelocity: Float,
@@ -95,16 +98,15 @@ object WorldParticlesRenderer {
         }
 
         updateParticles(client)
-        val maxParticles = 800
-        if (particles.size > maxParticles) {
-            particles.subList(0, particles.size - maxParticles).clear()
+        if (particles.size > 800) {
+            particles.subList(0, particles.size - 800).clear()
         }
     }
 
     private fun spawnBurst(client: Minecraft) {
         val player = client.player ?: return
         val type = WorldParticlesModule.ParticleType.fromId(
-            ModuleStateStore.getTextSetting(WorldParticlesModule.particleTypeKey, WorldParticlesModule.ParticleType.WATER_DROP.id)
+            ModuleStateStore.getTextSetting(WorldParticlesModule.particleTypeKey, WorldParticlesModule.ParticleType.WATER_DROP.id),
         )
         if (type == WorldParticlesModule.ParticleType.CUSTOM && WorldParticleTextureRegistry.resolveTexture(client) == null) {
             return
@@ -118,12 +120,12 @@ object WorldParticlesRenderer {
         val horizontalMovement = ModuleStateStore.isSettingEnabled(WorldParticlesModule.horizontalMovementKey)
         val speed = ModuleStateStore.getNumberSetting(WorldParticlesModule.speedKey, 0.05f).coerceIn(0.0f, 0.30f).toDouble()
         val physicsMode = WorldParticlesModule.PhysicsMode.fromId(
-            ModuleStateStore.getTextSetting(WorldParticlesModule.physicsModeKey, WorldParticlesModule.PhysicsMode.NO_PHYSICS.id)
+            ModuleStateStore.getTextSetting(WorldParticlesModule.physicsModeKey, WorldParticlesModule.PhysicsMode.NO_PHYSICS.id),
         )
 
         repeat(count) {
             val angle = random.nextDouble(0.0, PI * 2.0)
-            val distance = radius * kotlin.math.sqrt(random.nextDouble())
+            val distance = radius * sqrt(random.nextDouble())
             val x = player.x + (cos(angle) * distance)
             val y = player.y + random.nextDouble(0.2, height)
             val z = player.z + (sin(angle) * distance)
@@ -139,6 +141,7 @@ object WorldParticlesRenderer {
                         vector.z * vectorSpeed * horizontalFactor,
                     )
                 }
+
                 else -> {
                     val horizontalSpeed = if (horizontalMovement) speed * random.nextDouble(0.45, 1.0) else 0.0
                     val verticalSpeed = speed * random.nextDouble(0.15, 0.55)
@@ -165,7 +168,7 @@ object WorldParticlesRenderer {
                 age = 0,
                 lifetime = lifetime,
                 size = size,
-                color = 0xFFFFFFFF.toInt(),
+                colorOffset = random.nextInt(360),
                 prevRotation = initialRotation,
                 rotation = initialRotation,
                 rotationVelocity = rotationVelocity,
@@ -177,7 +180,7 @@ object WorldParticlesRenderer {
         val world = client.level ?: return
         val gravity = ModuleStateStore.getNumberSetting(WorldParticlesModule.gravityKey, 0.04f).coerceIn(0.0f, 0.20f).toDouble()
         val physicsMode = WorldParticlesModule.PhysicsMode.fromId(
-            ModuleStateStore.getTextSetting(WorldParticlesModule.physicsModeKey, WorldParticlesModule.PhysicsMode.NO_PHYSICS.id)
+            ModuleStateStore.getTextSetting(WorldParticlesModule.physicsModeKey, WorldParticlesModule.PhysicsMode.NO_PHYSICS.id),
         )
 
         val iterator = particles.iterator()
@@ -203,19 +206,15 @@ object WorldParticlesRenderer {
             var nextZ = particle.z + particle.velocityZ
 
             if (physicsMode == WorldParticlesModule.PhysicsMode.REALISTIC) {
-                if (collides(world = world, x = nextX, y = particle.y, z = particle.z)) {
+                if (collides(world, nextX, particle.y, particle.z)) {
                     nextX = particle.x
                     particle.velocityX *= -0.62
                 }
-                if (collides(world = world, x = nextX, y = nextY, z = particle.z)) {
+                if (collides(world, nextX, nextY, particle.z)) {
                     nextY = particle.y
-                    particle.velocityY = if (particle.velocityY < 0.0) {
-                        particle.velocityY * -0.58
-                    } else {
-                        particle.velocityY * -0.32
-                    }
+                    particle.velocityY = if (particle.velocityY < 0.0) particle.velocityY * -0.58 else particle.velocityY * -0.32
                 }
-                if (collides(world = world, x = nextX, y = nextY, z = nextZ)) {
+                if (collides(world, nextX, nextY, nextZ)) {
                     nextZ = particle.z
                     particle.velocityZ *= -0.62
                 }
@@ -229,14 +228,13 @@ object WorldParticlesRenderer {
             particle.y = nextY
             particle.z = nextZ
             particle.rotation += particle.rotationVelocity
-
             particle.velocityX *= 0.985
             particle.velocityY *= 0.985
             particle.velocityZ *= 0.985
         }
     }
 
-    private fun collides(world: net.minecraft.client.multiplayer.ClientLevel, x: Double, y: Double, z: Double): Boolean {
+    private fun collides(world: ClientLevel, x: Double, y: Double, z: Double): Boolean {
         val blockPos = BlockPos.containing(x, y, z)
         if (!world.isLoaded(blockPos)) return false
         val state = world.getBlockState(blockPos)
@@ -245,8 +243,7 @@ object WorldParticlesRenderer {
 
     private fun render(context: WorldRenderContext) {
         val client = Minecraft.getInstance()
-        if (!ModuleStateStore.isEnabled(WorldParticlesModule.moduleId)) return
-        if (particles.isEmpty()) return
+        if (!ModuleStateStore.isEnabled(WorldParticlesModule.moduleId) || particles.isEmpty()) return
 
         val texture = WorldParticleTextureRegistry.resolveTexture(client) ?: return
         val camera = client.gameRenderer.mainCamera
@@ -255,7 +252,6 @@ object WorldParticlesRenderer {
         val renderedParticles = particles.mapNotNull { particle ->
             buildRenderedParticle(
                 particle = particle,
-                texture = texture,
                 cameraX = cameraPos.x,
                 cameraY = cameraPos.y,
                 cameraZ = cameraPos.z,
@@ -265,12 +261,12 @@ object WorldParticlesRenderer {
         if (renderedParticles.isEmpty()) return
 
         val poseStack = context.matrices()
-        val consumers = particleBufferSource
-        val coreType = if (texture.useCutout) {
+        val renderType = if (texture.useCutout) {
             RenderTypes.entitySmoothCutout(texture.textureId)
         } else {
-            RenderTypes.entityTranslucent(texture.textureId)
+            RenderTypes.entityTranslucentEmissive(texture.textureId)
         }
+        val consumer = particleBufferSource.getBuffer(renderType)
         val cameraRotation = Quaternionf(camera.rotation())
 
         renderedParticles.forEach { particle ->
@@ -282,21 +278,19 @@ object WorldParticlesRenderer {
             )
             poseStack.mulPose(cameraRotation)
             poseStack.mulPose(Axis.ZP.rotation(particle.rotationRadians))
-
             drawWorldQuad(
-                consumer = consumers.getBuffer(coreType),
+                consumer = consumer,
                 pose = poseStack.last(),
                 halfSize = particle.halfSize,
-                color = particle.color,
+                colors = particle.cornerColors,
             )
             poseStack.popPose()
         }
-        consumers.endBatch(coreType)
+        particleBufferSource.endBatch(renderType)
     }
 
     private fun buildRenderedParticle(
         particle: ParticleInstance,
-        texture: WorldParticleTextureRegistry.ParticleTexture,
         cameraX: Double,
         cameraY: Double,
         cameraZ: Double,
@@ -309,21 +303,9 @@ object WorldParticlesRenderer {
         val fadeStart = 0.82f
         val fadeProgress = ((lifeProgress - fadeStart) / (1.0f - fadeStart)).coerceIn(0f, 1f)
         val alphaFactor = 1.0f - fadeProgress
-        val rotationRadians = lerp(particle.prevRotation.toDouble(), particle.rotation.toDouble(), partialTick).toFloat()
-        val scaleFactor = if (texture.useCutout) {
-            (1.0f - fadeProgress).coerceIn(0f, 1f)
-        } else {
-            1.0f
-        }
-        val alpha = if (texture.useCutout) {
-            0xFF
-        } else {
-            (255.0f * alphaFactor).toInt().coerceIn(0, 255)
-        }
-        if (alpha <= 0) return null
-        val halfSize = max(0.02f, particle.size * worldHalfSizeScale * max(scaleFactor, 0.0001f))
-        if (texture.useCutout && halfSize <= 0.02f && fadeProgress >= 1.0f) return null
-        val color = (alpha shl 24) or (texture.colorRgb and 0x00FFFFFF)
+        if (alphaFactor <= 0f) return null
+
+        val halfSize = max(0.02f, particle.size * worldHalfSizeScale)
         val dx = interpolatedX - cameraX
         val dy = interpolatedY - cameraY
         val dz = interpolatedZ - cameraZ
@@ -333,27 +315,67 @@ object WorldParticlesRenderer {
             y = interpolatedY,
             z = interpolatedZ,
             halfSize = halfSize,
-            color = color,
-            rotationRadians = rotationRadians,
+            cornerColors = particleColors(alphaFactor, particle.colorOffset),
+            rotationRadians = lerp(particle.prevRotation.toDouble(), particle.rotation.toDouble(), partialTick).toFloat(),
             distanceSq = (dx * dx) + (dy * dy) + (dz * dz),
         )
+    }
+
+    private fun particleColors(alphaFactor: Float, colorOffset: Int): IntArray {
+        return when (WorldParticlesModule.colorMode()) {
+            WorldParticlesModule.ColorMode.SYNC -> {
+                val synced = WorldParticleColorUtil.multAlpha(VisualThemeSettings.accentStrong(), alphaFactor)
+                intArrayOf(synced, synced, synced, synced)
+            }
+
+            WorldParticlesModule.ColorMode.CUSTOM -> {
+                val colors = WorldParticlesModule.customColors()
+                if (WorldParticlesModule.colorAnimation() == WorldParticlesModule.ColorAnimation.VERTEX) {
+                    intArrayOf(
+                        WorldParticleColorUtil.vertexGradientColor(colorOffset + 0, colors, alphaFactor),
+                        WorldParticleColorUtil.vertexGradientColor(colorOffset + 90, colors, alphaFactor),
+                        WorldParticleColorUtil.vertexGradientColor(colorOffset + 180, colors, alphaFactor),
+                        WorldParticleColorUtil.vertexGradientColor(colorOffset + 270, colors, alphaFactor),
+                    )
+                } else {
+                    val wave = WorldParticleColorUtil.waveColor(colors, alphaFactor, colorOffset)
+                    intArrayOf(wave, wave, wave, wave)
+                }
+            }
+        }
     }
 
     private fun drawWorldQuad(
         consumer: com.mojang.blaze3d.vertex.VertexConsumer,
         pose: com.mojang.blaze3d.vertex.PoseStack.Pose,
         halfSize: Float,
-        color: Int,
+        colors: IntArray,
     ) {
-        if ((color ushr 24) <= 0) return
+        if (colors.size < 4) return
+        putVertex(consumer, pose, -halfSize, -halfSize, 0f, colors[0], 0f, 1f)
+        putVertex(consumer, pose, halfSize, -halfSize, 0f, colors[1], 1f, 1f)
+        putVertex(consumer, pose, halfSize, halfSize, 0f, colors[2], 1f, 0f)
+        putVertex(consumer, pose, -halfSize, halfSize, 0f, colors[3], 0f, 0f)
+    }
+
+    private fun putVertex(
+        consumer: com.mojang.blaze3d.vertex.VertexConsumer,
+        pose: com.mojang.blaze3d.vertex.PoseStack.Pose,
+        x: Float,
+        y: Float,
+        z: Float,
+        color: Int,
+        u: Float,
+        v: Float,
+    ) {
         val a = (color ushr 24) and 0xFF
-        val r = (color ushr 16) and 0xFF
-        val g = (color ushr 8) and 0xFF
-        val b = color and 0xFF
-        consumer.addVertex(pose, -halfSize, -halfSize, 0f).setColor(r, g, b, a).setUv(0f, 1f).setOverlay(0).setLight(fullBrightLight).setNormal(0f, 1f, 0f)
-        consumer.addVertex(pose, halfSize, -halfSize, 0f).setColor(r, g, b, a).setUv(1f, 1f).setOverlay(0).setLight(fullBrightLight).setNormal(0f, 1f, 0f)
-        consumer.addVertex(pose, halfSize, halfSize, 0f).setColor(r, g, b, a).setUv(1f, 0f).setOverlay(0).setLight(fullBrightLight).setNormal(0f, 1f, 0f)
-        consumer.addVertex(pose, -halfSize, halfSize, 0f).setColor(r, g, b, a).setUv(0f, 0f).setOverlay(0).setLight(fullBrightLight).setNormal(0f, 1f, 0f)
+        if (a <= 0) return
+        consumer.addVertex(pose, x, y, z)
+            .setColor((color ushr 16) and 0xFF, (color ushr 8) and 0xFF, color and 0xFF, a)
+            .setUv(u, v)
+            .setOverlay(0)
+            .setLight(fullBrightLight)
+            .setNormal(0f, 1f, 0f)
     }
 
     private fun lerp(previous: Double, current: Double, delta: Float): Double {
@@ -363,12 +385,11 @@ object WorldParticlesRenderer {
     private fun randomUnitVector(): Vector3f {
         val theta = random.nextDouble(0.0, PI * 2.0)
         val z = random.nextDouble(-1.0, 1.0)
-        val radius = kotlin.math.sqrt(1.0 - (z * z))
+        val radius = sqrt(1.0 - (z * z))
         return Vector3f(
             (radius * cos(theta)).toFloat(),
             z.toFloat(),
             (radius * sin(theta)).toFloat(),
         )
     }
-
 }

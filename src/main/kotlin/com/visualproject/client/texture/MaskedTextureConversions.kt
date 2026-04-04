@@ -8,6 +8,37 @@ import kotlin.math.roundToInt
 import kotlin.math.sqrt
 
 object MaskedTextureConversions {
+    fun buildPureWhiteMask(sourceImage: BufferedImage): BufferedImage {
+        val background = sampleBackgroundColor(sourceImage)
+        val width = sourceImage.width.coerceAtLeast(1)
+        val height = sourceImage.height.coerceAtLeast(1)
+        val output = BufferedImage(width, height, BufferedImage.TYPE_INT_ARGB)
+
+        for (y in 0 until height) {
+            for (x in 0 until width) {
+                val argb = sourceImage.getRGB(x, y)
+                val alpha = (argb ushr 24) and 0xFF
+                if (alpha <= 0) {
+                    output.setRGB(x, y, 0)
+                    continue
+                }
+
+                val red = (argb ushr 16) and 0xFF
+                val green = (argb ushr 8) and 0xFF
+                val blue = argb and 0xFF
+                if (red == 0 && green == 0 && blue == 0) {
+                    output.setRGB(x, y, 0)
+                    continue
+                }
+
+                val extractedAlpha = extractAlpha(alpha, red, green, blue, background)
+                output.setRGB(x, y, if (extractedAlpha <= 0) 0 else ((extractedAlpha shl 24) or 0x00FFFFFF))
+            }
+        }
+
+        return output
+    }
+
     fun buildWhiteMask(sourceImage: BufferedImage): BufferedImage {
         val background = sampleBackgroundColor(sourceImage)
         val width = sourceImage.width.coerceAtLeast(1)

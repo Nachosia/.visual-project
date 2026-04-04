@@ -8,6 +8,7 @@ import com.visualproject.client.render.shadertoy.ShadertoyFrameProvider
 import com.visualproject.client.render.shadertoy.ShadertoyMaskedWorldRenderer
 import com.visualproject.client.render.shadertoy.ShadertoyProgramRegistry
 import com.visualproject.client.render.shadertoy.ShadertoyWorldRevealRenderer
+import com.visualproject.client.visuals.worldparticles.WorldParticleColorUtil
 import com.visualproject.client.visuals.worldparticles.WorldParticleTextureRegistry
 import net.fabricmc.fabric.api.client.event.lifecycle.v1.ClientTickEvents
 import net.fabricmc.fabric.api.client.rendering.v1.world.WorldRenderContext
@@ -48,6 +49,7 @@ object JumpCircleRenderer {
         val circleScale: Float,
         val rotateSpeed: Float,
         val angularVelocity: Float,
+        val colorOffset: Int,
         var ageTicks: Int = 0,
         var rotationAngle: Float = 0f,
     ) {
@@ -282,6 +284,7 @@ object JumpCircleRenderer {
             circleScale = JumpCircleModule.circleScale(),
             rotateSpeed = JumpCircleModule.circleRotateSpeed(),
             angularVelocity = random.nextFloat() * 2f + 1f,
+            colorOffset = random.nextInt(360),
         )
     }
 
@@ -473,8 +476,6 @@ object JumpCircleRenderer {
     ) {
         if (circleEffects.isEmpty()) return
         val pose = context.matrices().last()
-        val currentTimeMillis = System.currentTimeMillis()
-
         circleEffects
             .sortedByDescending { distanceSq(it.centerX, it.centerY, it.centerZ, cameraX, cameraY, cameraZ) }
             .groupBy { JumpCircleTextureRegistry.resolveCircleTexture(client, it.textureStyle) }
@@ -499,7 +500,7 @@ object JumpCircleRenderer {
                         JumpCircleModule.CircleAnimationType.BOTH -> effect.circleScale * animationValue
                     }.coerceAtLeast(0.01f)
 
-                    val vertexColors = resolveCircleVertexColors(effect, currentTimeMillis, alpha)
+                    val vertexColors = resolveCircleVertexColors(effect, alpha / 255f)
                     drawRotatedHorizontalTexturedQuad(
                         consumer = consumer,
                         pose = pose,
@@ -765,12 +766,8 @@ object JumpCircleRenderer {
         val progress = (particle.age.toFloat() / particle.lifetime.toFloat()).coerceIn(0f, 1f)
         val fadeStart = 0.78f
         val fadeProgress = ((progress - fadeStart) / (1f - fadeStart)).coerceIn(0f, 1f)
-        val alpha = if (particle.texture.useCutout) {
-            0xFF
-        } else {
-            ((1.0f - fadeProgress) * 255f).roundToInt().coerceIn(0, 255)
-        }
-        if (alpha <= 0) return null
+        val alphaFactor = 1.0f - fadeProgress
+        if (alphaFactor <= 0f) return null
 
         val scaleFactor = if (particle.texture.useCutout) {
             (1.0f - (fadeProgress * 0.55f)).coerceIn(0.2f, 1.0f)
@@ -788,7 +785,7 @@ object JumpCircleRenderer {
             y = interpolatedY,
             z = interpolatedZ,
             halfSize = halfSize,
-            color = (alpha shl 24) or (particle.texture.colorRgb and 0x00FFFFFF),
+            color = WorldParticleColorUtil.multAlpha(JumpCircleModule.particleColor(), alphaFactor),
             rotationRadians = lerp(particle.prevRotation.toDouble(), particle.rotation.toDouble(), partialTick).toFloat(),
             distanceSq = (dx * dx) + (dy * dy) + (dz * dz),
         )
@@ -887,76 +884,30 @@ object JumpCircleRenderer {
         )
     }
 
-    private fun resolveCircleVertexColors(effect: CircleEffect, currentTimeMillis: Long, alpha: Int): IntArray {
+    private fun resolveCircleVertexColors(effect: CircleEffect, alphaFactor: Float): IntArray {
         if (effect.colorMode == JumpCircleModule.CircleColorMode.SYNC) {
-            val syncedColor = withAlpha(VisualThemeSettings.accentStrong(), alpha)
+            val syncedColor = WorldParticleColorUtil.multAlpha(VisualThemeSettings.accentStrong(), alphaFactor)
             return intArrayOf(syncedColor, syncedColor, syncedColor, syncedColor)
         }
 
         val palette = effect.palette
         if (palette.isEmpty()) {
-            val fallbackColor = withAlpha(0xFFFFFFFF.toInt(), alpha)
+            val fallbackColor = WorldParticleColorUtil.multAlpha(0xFFFFFFFF.toInt(), alphaFactor)
             return intArrayOf(fallbackColor, fallbackColor, fallbackColor, fallbackColor)
         }
 
         return when (effect.colorAnimation) {
             JumpCircleModule.CircleColorAnimation.WAVE -> {
-                val color = animatedWaveCircleColor(palette, currentTimeMillis, alpha)
+                val color = WorldParticleColorUtil.waveColor(palette, alphaFactor, effect.colorOffset)
                 intArrayOf(color, color, color, color)
             }
             JumpCircleModule.CircleColorAnimation.VERTEXES -> intArrayOf(
-                animatedVertexCircleColor(palette, currentTimeMillis, 0, alpha),
-                animatedVertexCircleColor(palette, currentTimeMillis, 90, alpha),
-                animatedVertexCircleColor(palette, currentTimeMillis, 180, alpha),
-                animatedVertexCircleColor(palette, currentTimeMillis, 270, alpha),
+                WorldParticleColorUtil.vertexGradientColor(effect.colorOffset + 0, palette, alphaFactor),
+                WorldParticleColorUtil.vertexGradientColor(effect.colorOffset + 90, palette, alphaFactor),
+                WorldParticleColorUtil.vertexGradientColor(effect.colorOffset + 180, palette, alphaFactor),
+                WorldParticleColorUtil.vertexGradientColor(effect.colorOffset + 270, palette, alphaFactor),
             )
         }
-    }
-
-    private fun animatedWaveCircleColor(palette: IntArray, currentTimeMillis: Long, alpha: Int): Int {
-        if (palette.size == 1) return withAlpha(palette[0], alpha)
-        if (palette.size == 2) {
-            var angle = ((currentTimeMillis / 8L) % 360L).toInt()
-            angle = if (angle >= 180) 360 - angle else angle
-            return withAlpha(blendColor(palette[0], palette[1], angle / 180f), alpha)
-        }
-
-        val timeProgress = ((currentTimeMillis / 10f) % (palette.size * 360f)) / 360f
-        val index1 = floor(timeProgress).toInt().mod(palette.size)
-        val index2 = (index1 + 1) % palette.size
-        val lerp = timeProgress - floor(timeProgress)
-        return withAlpha(blendColor(palette[index1], palette[index2], lerp), alpha)
-    }
-
-    private fun animatedVertexCircleColor(palette: IntArray, currentTimeMillis: Long, angleOffset: Int, alpha: Int): Int {
-        if (palette.size == 1) return withAlpha(palette[0], alpha)
-
-        var angle = ((currentTimeMillis / 8L) + angleOffset) % 360L
-        if (palette.size == 2) {
-            val adjustedAngle = if (angle >= 180L) 360L - angle else angle
-            return withAlpha(blendColor(palette[0], palette[1], adjustedAngle / 180f), alpha)
-        }
-
-        val progress = angle / 360f
-        val colorIndex = progress * palette.size
-        val index1 = floor(colorIndex).toInt().mod(palette.size)
-        val index2 = (index1 + 1) % palette.size
-        val lerp = colorIndex - floor(colorIndex)
-        return withAlpha(blendColor(palette[index1], palette[index2], lerp), alpha)
-    }
-
-    private fun blendColor(startColor: Int, endColor: Int, progress: Float): Int {
-        val t = progress.coerceIn(0f, 1f)
-        val startRed = (startColor ushr 16) and 0xFF
-        val startGreen = (startColor ushr 8) and 0xFF
-        val startBlue = startColor and 0xFF
-        val endRed = (endColor ushr 16) and 0xFF
-        val endGreen = (endColor ushr 8) and 0xFF
-        val endBlue = endColor and 0xFF
-        val red = (startRed + ((endRed - startRed) * t)).roundToInt().coerceIn(0, 255)
-        val green = (startGreen + ((endGreen - startGreen) * t)).roundToInt().coerceIn(0, 255)
-        val blue = (startBlue + ((endBlue - startBlue) * t)).roundToInt().coerceIn(0, 255)
-        return (0xFF shl 24) or (red shl 16) or (green shl 8) or blue
     }
 
     private fun drawTexturedQuad(

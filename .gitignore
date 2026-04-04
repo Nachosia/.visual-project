@@ -39,3 +39,11 @@ hs_err_*.log
 replay_*.log
 *.hprof
 *.jfr
+
+# local scratch / extracted references
+
+tools/reference/
+.tmp_*/
+render_types_probe.java
+T.java
+T.class

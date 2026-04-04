@@ -521,9 +521,13 @@ class ExperimentalVisualsMenuScreen : Screen(Component.empty()) {
                         ModuleStateStore.setTextSetting(row.key, it)
                     }
 
-                    WorldParticlesModule.customColorKey -> normalizeHexColor(raw)?.let {
+                    WorldParticlesModule.customColorKey,
+                    WorldParticlesModule.customColor1Key,
+                    WorldParticlesModule.customColor2Key,
+                    WorldParticlesModule.customColor3Key,
+                    WorldParticlesModule.customColor4Key -> normalizeHexColor(raw)?.let {
                         ModuleStateStore.setTextSetting(row.key, it)
-                        ModuleStateStore.setSettingEnabled(WorldParticlesModule.clientColorKey, false)
+                        ModuleStateStore.setTextSetting(WorldParticlesModule.colorModeKey, WorldParticlesModule.ColorMode.CUSTOM.id)
                     }
 
                     JumpCircleModule.circleCustomColorKey -> normalizeHexColor(raw)?.let {
@@ -1513,8 +1517,45 @@ class ExperimentalVisualsMenuScreen : Screen(Component.empty()) {
             addSlider(WorldParticlesModule.speedKey, "Movement Speed", 0.0f, 0.30f)
 
             addSection("Color")
-            addToggle(WorldParticlesModule.clientColorKey, "Client Color")
-            addInput(WorldParticlesModule.customColorKey, "Custom Color", "#RRGGBB")
+            addChoice(
+                WorldParticlesModule.colorModeKey,
+                "Color Mode",
+                WorldParticlesModule.ColorMode.SYNC.id to WorldParticlesModule.ColorMode.SYNC.label,
+                WorldParticlesModule.ColorMode.CUSTOM.id to WorldParticlesModule.ColorMode.CUSTOM.label,
+            )
+            if (choiceValueFor(WorldParticlesModule.colorModeKey, WorldParticlesModule.ColorMode.SYNC.id) == WorldParticlesModule.ColorMode.CUSTOM.id) {
+                addChoice(
+                    WorldParticlesModule.colorCountKey,
+                    "Colors",
+                    WorldParticlesModule.ColorCount.SOLO.id to WorldParticlesModule.ColorCount.SOLO.label,
+                    WorldParticlesModule.ColorCount.DUO.id to WorldParticlesModule.ColorCount.DUO.label,
+                    WorldParticlesModule.ColorCount.TRIPLE.id to WorldParticlesModule.ColorCount.TRIPLE.label,
+                    WorldParticlesModule.ColorCount.QUARTET.id to WorldParticlesModule.ColorCount.QUARTET.label,
+                )
+                addChoice(
+                    WorldParticlesModule.colorAnimationKey,
+                    "Animation",
+                    WorldParticlesModule.ColorAnimation.WAVE.id to WorldParticlesModule.ColorAnimation.WAVE.label,
+                    WorldParticlesModule.ColorAnimation.VERTEX.id to WorldParticlesModule.ColorAnimation.VERTEX.label,
+                )
+                addInput(WorldParticlesModule.customColor1Key, "Color 1", "#RRGGBB")
+                when (choiceValueFor(WorldParticlesModule.colorCountKey, WorldParticlesModule.ColorCount.SOLO.id)) {
+                    WorldParticlesModule.ColorCount.DUO.id -> {
+                        addInput(WorldParticlesModule.customColor2Key, "Color 2", "#RRGGBB")
+                    }
+
+                    WorldParticlesModule.ColorCount.TRIPLE.id -> {
+                        addInput(WorldParticlesModule.customColor2Key, "Color 2", "#RRGGBB")
+                        addInput(WorldParticlesModule.customColor3Key, "Color 3", "#RRGGBB")
+                    }
+
+                    WorldParticlesModule.ColorCount.QUARTET.id -> {
+                        addInput(WorldParticlesModule.customColor2Key, "Color 2", "#RRGGBB")
+                        addInput(WorldParticlesModule.customColor3Key, "Color 3", "#RRGGBB")
+                        addInput(WorldParticlesModule.customColor4Key, "Color 4", "#RRGGBB")
+                    }
+                }
+            }
 
             if (choiceValueFor(WorldParticlesModule.particleTypeKey, WorldParticlesModule.ParticleType.WATER_DROP.id) ==
                 WorldParticlesModule.ParticleType.CUSTOM.id
@@ -2037,6 +2078,10 @@ class ExperimentalVisualsMenuScreen : Screen(Component.empty()) {
             "gif_hud:chroma_key_color" -> ModuleStateStore.getTextSetting(key, "#00FF00")
             WorldCustomizerModule.customSkyColorKey -> ModuleStateStore.getTextSetting(key, "#4B5DFF")
             WorldParticlesModule.customColorKey -> ModuleStateStore.getTextSetting(key, "#B31284")
+            WorldParticlesModule.customColor1Key -> ModuleStateStore.getTextSetting(key, ModuleStateStore.getTextSetting(WorldParticlesModule.customColorKey, "#B31284"))
+            WorldParticlesModule.customColor2Key -> ModuleStateStore.getTextSetting(key, "#FF8A3D")
+            WorldParticlesModule.customColor3Key -> ModuleStateStore.getTextSetting(key, "#7F5BFF")
+            WorldParticlesModule.customColor4Key -> ModuleStateStore.getTextSetting(key, "#F9D648")
             JumpCircleModule.circleCustomColorKey -> ModuleStateStore.getTextSetting(key, "#FFFFFF")
             JumpCircleModule.circleCustomColor2Key -> ModuleStateStore.getTextSetting(key, "#3574F0")
             JumpCircleModule.circleCustomColor3Key -> ModuleStateStore.getTextSetting(key, "#9B59B6")
@@ -2064,6 +2109,10 @@ class ExperimentalVisualsMenuScreen : Screen(Component.empty()) {
             key == "gif_hud:chroma_key_color" ||
             key == WorldCustomizerModule.customSkyColorKey ||
             key == WorldParticlesModule.customColorKey ||
+            key == WorldParticlesModule.customColor1Key ||
+            key == WorldParticlesModule.customColor2Key ||
+            key == WorldParticlesModule.customColor3Key ||
+            key == WorldParticlesModule.customColor4Key ||
             key == JumpCircleModule.circleCustomColorKey ||
             key == JumpCircleModule.circleCustomColor2Key ||
             key == JumpCircleModule.circleCustomColor3Key ||
@@ -2108,6 +2157,10 @@ class ExperimentalVisualsMenuScreen : Screen(Component.empty()) {
             swatch.height,
             if (
                 row.key == WorldParticlesModule.customColorKey ||
+                row.key == WorldParticlesModule.customColor1Key ||
+                row.key == WorldParticlesModule.customColor2Key ||
+                row.key == WorldParticlesModule.customColor3Key ||
+                row.key == WorldParticlesModule.customColor4Key ||
                 row.key == JumpCircleModule.particleCustomColorKey ||
                 row.key == JumpCircleModule.circleCustomColorKey ||
                 row.key == JumpCircleModule.circleCustomColor2Key ||
@@ -2125,7 +2178,13 @@ class ExperimentalVisualsMenuScreen : Screen(Component.empty()) {
             border,
             7,
         )
-        if (row.key == WorldParticlesModule.customColorKey) {
+        if (
+            row.key == WorldParticlesModule.customColorKey ||
+            row.key == WorldParticlesModule.customColor1Key ||
+            row.key == WorldParticlesModule.customColor2Key ||
+            row.key == WorldParticlesModule.customColor3Key ||
+            row.key == WorldParticlesModule.customColor4Key
+        ) {
             drawWorldParticlePreview(context, IntRect(swatch.x + 2, swatch.y + 2, swatch.width - 4, swatch.height - 4))
         } else if (row.key == JumpCircleModule.particleCustomColorKey) {
             drawJumpCircleParticlePreview(context, IntRect(swatch.x + 2, swatch.y + 2, swatch.width - 4, swatch.height - 4))
@@ -2199,8 +2258,14 @@ class ExperimentalVisualsMenuScreen : Screen(Component.empty()) {
         val rgb = Color.HSBtoRGB(pickerHue.coerceIn(0f, 1f), pickerSaturation.coerceIn(0f, 1f), pickerValue.coerceIn(0f, 1f))
         val normalized = "#%06X".format(java.util.Locale.US, rgb and 0x00FFFFFF)
         ModuleStateStore.setTextSetting(key, normalized)
-        if (key == WorldParticlesModule.customColorKey) {
-            ModuleStateStore.setSettingEnabled(WorldParticlesModule.clientColorKey, false)
+        if (
+            key == WorldParticlesModule.customColorKey ||
+            key == WorldParticlesModule.customColor1Key ||
+            key == WorldParticlesModule.customColor2Key ||
+            key == WorldParticlesModule.customColor3Key ||
+            key == WorldParticlesModule.customColor4Key
+        ) {
+            ModuleStateStore.setTextSetting(WorldParticlesModule.colorModeKey, WorldParticlesModule.ColorMode.CUSTOM.id)
         }
         if (
             key == JumpCircleModule.circleCustomColorKey ||
@@ -2239,6 +2304,10 @@ class ExperimentalVisualsMenuScreen : Screen(Component.empty()) {
             "gif_hud:chroma_key_color" -> parseColorSetting(ModuleStateStore.getTextSetting(key, "#00FF00"), 0xFF00FF00.toInt())
             WorldCustomizerModule.customSkyColorKey -> parseColorSetting(ModuleStateStore.getTextSetting(key, "#4B5DFF"), 0xFF4B5DFF.toInt())
             WorldParticlesModule.customColorKey -> parseColorSetting(ModuleStateStore.getTextSetting(key, "#B31284"), 0xFFB31284.toInt())
+            WorldParticlesModule.customColor1Key -> parseColorSetting(ModuleStateStore.getTextSetting(key, ModuleStateStore.getTextSetting(WorldParticlesModule.customColorKey, "#B31284")), 0xFFB31284.toInt())
+            WorldParticlesModule.customColor2Key -> parseColorSetting(ModuleStateStore.getTextSetting(key, "#FF8A3D"), 0xFFFF8A3D.toInt())
+            WorldParticlesModule.customColor3Key -> parseColorSetting(ModuleStateStore.getTextSetting(key, "#7F5BFF"), 0xFF7F5BFF.toInt())
+            WorldParticlesModule.customColor4Key -> parseColorSetting(ModuleStateStore.getTextSetting(key, "#F9D648"), 0xFFF9D648.toInt())
             JumpCircleModule.circleCustomColorKey -> parseColorSetting(ModuleStateStore.getTextSetting(key, "#FFFFFF"), 0xFFFFFFFF.toInt())
             JumpCircleModule.circleCustomColor2Key -> parseColorSetting(ModuleStateStore.getTextSetting(key, "#3574F0"), 0xFF3574F0.toInt())
             JumpCircleModule.circleCustomColor3Key -> parseColorSetting(ModuleStateStore.getTextSetting(key, "#9B59B6"), 0xFF9B59B6.toInt())
@@ -2268,7 +2337,11 @@ class ExperimentalVisualsMenuScreen : Screen(Component.empty()) {
             VisualThemeSettings.sliderKnobColorKey -> "Slider Knob"
             "gif_hud:chroma_key_color" -> "Chroma Key Color"
             WorldCustomizerModule.customSkyColorKey -> "Custom Sky Color"
-            WorldParticlesModule.customColorKey -> "Custom Particle Color"
+            WorldParticlesModule.customColorKey,
+            WorldParticlesModule.customColor1Key -> "Particle Color 1"
+            WorldParticlesModule.customColor2Key -> "Particle Color 2"
+            WorldParticlesModule.customColor3Key -> "Particle Color 3"
+            WorldParticlesModule.customColor4Key -> "Particle Color 4"
             JumpCircleModule.circleCustomColorKey -> "Jump Circle Color 1"
             JumpCircleModule.circleCustomColor2Key -> "Jump Circle Color 2"
             JumpCircleModule.circleCustomColor3Key -> "Jump Circle Color 3"
@@ -2320,7 +2393,13 @@ class ExperimentalVisualsMenuScreen : Screen(Component.empty()) {
 
         val currentKey = activeThemeColorKey ?: return
         val currentColor = currentThemeColorForKey(currentKey)
-        val particlePreview = currentKey == WorldParticlesModule.customColorKey || currentKey == JumpCircleModule.particleCustomColorKey
+        val particlePreview =
+            currentKey == WorldParticlesModule.customColorKey ||
+                currentKey == WorldParticlesModule.customColor1Key ||
+                currentKey == WorldParticlesModule.customColor2Key ||
+                currentKey == WorldParticlesModule.customColor3Key ||
+                currentKey == WorldParticlesModule.customColor4Key ||
+                currentKey == JumpCircleModule.particleCustomColorKey
         val jumpCirclePreview = currentKey == JumpCircleModule.circleCustomColorKey ||
             currentKey == JumpCircleModule.circleCustomColor2Key ||
             currentKey == JumpCircleModule.circleCustomColor3Key ||
@@ -2504,7 +2583,26 @@ class ExperimentalVisualsMenuScreen : Screen(Component.empty()) {
     }
 
     private fun drawWorldParticlePreview(context: GuiGraphics, bounds: IntRect) {
-        drawParticlePreviewTexture(context, bounds, WorldParticleTextureRegistry.resolveTexture(Minecraft.getInstance()))
+        val client = Minecraft.getInstance()
+        val previewColor = activeThemeColorKey?.let { key ->
+            when (key) {
+                WorldParticlesModule.customColorKey,
+                WorldParticlesModule.customColor1Key,
+                WorldParticlesModule.customColor2Key,
+                WorldParticlesModule.customColor3Key,
+                WorldParticlesModule.customColor4Key -> currentThemeColorForKey(key)
+                else -> null
+            }
+        } ?: WorldParticlesModule.previewColor()
+        val texture = WorldParticleTextureRegistry.resolveTexture(
+            client = client,
+            type = WorldParticlesModule.ParticleType.fromId(
+                ModuleStateStore.getTextSetting(WorldParticlesModule.particleTypeKey, WorldParticlesModule.ParticleType.WATER_DROP.id),
+            ),
+            tintColor = previewColor,
+            customFile = ModuleStateStore.getTextSetting(WorldParticlesModule.customFileKey, ""),
+        )
+        drawParticlePreviewTexture(context, bounds, texture)
     }
 
     private fun drawJumpCircleParticlePreview(context: GuiGraphics, bounds: IntRect) {
@@ -2707,6 +2805,8 @@ class ExperimentalVisualsMenuScreen : Screen(Component.empty()) {
             key == JumpCircleModule.waveFillTypeKey ||
             key == ChinaHatModule.shapeKey ||
             key == WorldParticlesModule.particleTypeKey ||
+            key == WorldParticlesModule.colorModeKey ||
+            key == WorldParticlesModule.colorCountKey ||
             key == NotificationsSettings.modeKey ||
             key == NotificationsSettings.hitSoundModeKey ||
             key == NotificationsSettings.critSoundModeKey
