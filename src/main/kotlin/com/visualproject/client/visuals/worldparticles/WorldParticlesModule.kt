@@ -15,6 +15,16 @@ object WorldParticlesModule {
         MOON("moon", "Moon"),
         BOLT("bolt", "Bolt"),
         NEARBY("nearby", "Nearby"),
+        BLINK("blink", "Blink"),
+        CORON("coron", "Coron"),
+        FIREFLY("firefly", "Firefly"),
+        FLAME("flame", "Flame"),
+        GEOMETRIC("geometric", "Geometric"),
+        VIRUS("virus", "Virus"),
+        AMONGUS("amongus", "Among Us"),
+        BLOOM("bloom", "Bloom"),
+        GLYPH("glyph", "Glyph"),
+        GLYPH_ALT("glyph_alt", "Glyph Alt"),
         CUSTOM("custom", "Custom");
 
         companion object {

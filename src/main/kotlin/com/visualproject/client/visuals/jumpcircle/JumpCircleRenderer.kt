@@ -3,9 +3,11 @@ package com.visualproject.client.visuals.jumpcircle
 import com.mojang.blaze3d.vertex.ByteBufferBuilder
 import com.mojang.blaze3d.vertex.PoseStack
 import com.mojang.math.Axis
+import com.visualproject.client.VisualThemeSettings
 import com.visualproject.client.render.shadertoy.ShadertoyFrameProvider
 import com.visualproject.client.render.shadertoy.ShadertoyMaskedWorldRenderer
 import com.visualproject.client.render.shadertoy.ShadertoyProgramRegistry
+import com.visualproject.client.render.shadertoy.ShadertoyWorldRevealRenderer
 import com.visualproject.client.visuals.worldparticles.WorldParticleTextureRegistry
 import net.fabricmc.fabric.api.client.event.lifecycle.v1.ClientTickEvents
 import net.fabricmc.fabric.api.client.rendering.v1.world.WorldRenderContext
@@ -37,12 +39,19 @@ object JumpCircleRenderer {
         val centerX: Double,
         val centerY: Double,
         val centerZ: Double,
-        val maxRadius: Float,
-        val speed: Float,
-        val color: Int,
+        val textureStyle: JumpCircleModule.CircleTextureStyle,
+        val animationType: JumpCircleModule.CircleAnimationType,
+        val colorMode: JumpCircleModule.CircleColorMode,
+        val colorAnimation: JumpCircleModule.CircleColorAnimation,
+        val palette: IntArray,
+        val animation: ThreeStageAnimation,
+        val circleScale: Float,
+        val rotateSpeed: Float,
+        val angularVelocity: Float,
         var ageTicks: Int = 0,
+        var rotationAngle: Float = 0f,
     ) {
-        val lifetimeTicks: Int = max(1, ceil((maxRadius / speed.coerceAtLeast(0.10f)) * 20f).toInt())
+        val lifetimeTicks: Int = max(1, ceil(animation.totalDuration * 20f).toInt())
     }
 
     private data class BlockWaveEffect(
@@ -264,9 +273,15 @@ object JumpCircleRenderer {
             centerX = anchorX,
             centerY = anchorY,
             centerZ = anchorZ,
-            maxRadius = JumpCircleModule.circleRadius(),
-            speed = JumpCircleModule.circleSpeed(),
-            color = JumpCircleModule.circleColor(),
+            textureStyle = JumpCircleModule.circleTextureStyle(),
+            animationType = JumpCircleModule.circleAnimationType(),
+            colorMode = JumpCircleModule.circleColorMode(),
+            colorAnimation = JumpCircleModule.circleColorAnimation(),
+            palette = JumpCircleModule.circlePalette(),
+            animation = JumpCircleModule.circleAnimation(),
+            circleScale = JumpCircleModule.circleScale(),
+            rotateSpeed = JumpCircleModule.circleRotateSpeed(),
+            angularVelocity = random.nextFloat() * 2f + 1f,
         )
     }
 
@@ -316,6 +331,14 @@ object JumpCircleRenderer {
         while (iterator.hasNext()) {
             val effect = iterator.next()
             effect.ageTicks++
+            val elapsedSeconds = effect.ageTicks / 20f
+            val rotationFactor = when (effect.animation.stage(elapsedSeconds)) {
+                ThreeStageAnimation.Stage.APPEAR,
+                ThreeStageAnimation.Stage.EXIST -> 1f
+                ThreeStageAnimation.Stage.DISAPPEAR -> effect.animation.value(elapsedSeconds)
+                ThreeStageAnimation.Stage.FINISHED -> 0f
+            }
+            effect.rotationAngle -= effect.angularVelocity * 3f * effect.rotateSpeed * rotationFactor
             if (effect.ageTicks > effect.lifetimeTicks) {
                 iterator.remove()
             }
@@ -450,30 +473,49 @@ object JumpCircleRenderer {
     ) {
         if (circleEffects.isEmpty()) return
         val pose = context.matrices().last()
-        val renderType = RenderTypes.entityTranslucentEmissive(JumpCircleTextureRegistry.resolveRingTexture(client))
-        val consumer = fillBufferSource.getBuffer(renderType)
+        val currentTimeMillis = System.currentTimeMillis()
 
         circleEffects
             .sortedByDescending { distanceSq(it.centerX, it.centerY, it.centerZ, cameraX, cameraY, cameraZ) }
-            .forEach { effect ->
-                val radius = currentRadius(effect.maxRadius, effect.speed, effect.ageTicks, partialTick)
-                if (radius <= 0.01f) return@forEach
-                val progress = (radius / effect.maxRadius.coerceAtLeast(0.001f)).coerceIn(0f, 1f)
-                val fade = ((progress - 0.84f) / 0.16f).coerceIn(0f, 1f)
-                val alpha = ((1.0f - fade) * 255f).roundToInt().coerceIn(0, 255)
-                val color = withAlpha(effect.color, alpha)
-                drawHorizontalTexturedQuad(
-                    consumer = consumer,
-                    pose = pose,
-                    centerX = (effect.centerX - cameraX).toFloat(),
-                    centerY = (effect.centerY - cameraY).toFloat(),
-                    centerZ = (effect.centerZ - cameraZ).toFloat(),
-                    halfSize = radius,
-                    color = color,
-                )
-            }
+            .groupBy { JumpCircleTextureRegistry.resolveCircleTexture(client, it.textureStyle) }
+            .forEach { (textureId, effects) ->
+                val renderType = RenderTypes.entityTranslucentEmissive(textureId)
+                val consumer = fillBufferSource.getBuffer(renderType)
+                effects.forEach { effect ->
+                    val elapsedSeconds = (effect.ageTicks + partialTick) / 20f
+                    val animationValue = effect.animation.value(elapsedSeconds).coerceIn(0f, 1f)
+                    if (animationValue <= 0.001f) return@forEach
 
-        fillBufferSource.endBatch(renderType)
+                    val alpha = when (effect.animationType) {
+                        JumpCircleModule.CircleAnimationType.SCALE -> 255
+                        JumpCircleModule.CircleAnimationType.FADE,
+                        JumpCircleModule.CircleAnimationType.BOTH -> (animationValue * 255f).roundToInt().coerceIn(0, 255)
+                    }
+                    if (alpha <= 0) return@forEach
+
+                    val scale = when (effect.animationType) {
+                        JumpCircleModule.CircleAnimationType.FADE -> effect.circleScale
+                        JumpCircleModule.CircleAnimationType.SCALE,
+                        JumpCircleModule.CircleAnimationType.BOTH -> effect.circleScale * animationValue
+                    }.coerceAtLeast(0.01f)
+
+                    val vertexColors = resolveCircleVertexColors(effect, currentTimeMillis, alpha)
+                    drawRotatedHorizontalTexturedQuad(
+                        consumer = consumer,
+                        pose = pose,
+                        centerX = (effect.centerX - cameraX).toFloat(),
+                        centerY = (effect.centerY - cameraY).toFloat(),
+                        centerZ = (effect.centerZ - cameraZ).toFloat(),
+                        halfSize = scale,
+                        rotationDegrees = effect.rotationAngle,
+                        aColor = vertexColors[0],
+                        bColor = vertexColors[1],
+                        cColor = vertexColors[2],
+                        dColor = vertexColors[3],
+                    )
+                }
+                fillBufferSource.endBatch(renderType)
+            }
     }
     private fun renderBlockWaves(
         context: WorldRenderContext,
@@ -487,7 +529,7 @@ object JumpCircleRenderer {
         if (blockWaveEffects.isEmpty()) return
         val pose = context.matrices().last()
         val quadsByTexture = LinkedHashMap<Identifier, MutableList<WaveQuad>>()
-        val revealQuadsByShader = LinkedHashMap<ShaderMaskBatchKey, MutableList<ShadertoyMaskedWorldRenderer.Quad>>()
+        val revealQuadsByShader = LinkedHashMap<ShaderMaskBatchKey, MutableList<ShadertoyWorldRevealRenderer.Quad>>()
         val lineRenderType = RenderTypes.linesTranslucent()
         val lineConsumer = lineBufferSource.getBuffer(lineRenderType)
         var drewLines = false
@@ -589,7 +631,8 @@ object JumpCircleRenderer {
                                     shaderSpeedBits = java.lang.Float.floatToIntBits(effect.shaderSpeed),
                                     shaderAlphaBits = java.lang.Float.floatToIntBits(effect.shaderAlpha),
                                 )
-                                revealQuadsByShader.getOrPut(shaderBatchKey) { ArrayList() } += buildShaderMaskQuad(
+                                revealQuadsByShader.getOrPut(shaderBatchKey) { ArrayList() } += buildShaderRevealQuad(
+                                    effect = effect,
                                     minX = minX,
                                     maxX = maxX,
                                     y = y,
@@ -652,7 +695,7 @@ object JumpCircleRenderer {
                 qualityPreset = com.visualproject.client.visuals.hitbox.HitboxCustomizerModule.quality().preset,
                 timeScale = Float.fromBits(batch.shaderSpeedBits),
             ) ?: return@forEach
-            ShadertoyMaskedWorldRenderer.drawQuads(
+            ShadertoyWorldRevealRenderer.drawQuads(
                 context = context,
                 frame = frame,
                 quads = quads,
@@ -788,6 +831,132 @@ object JumpCircleRenderer {
             dColor = color,
             normalY = 1f,
         )
+    }
+
+    private fun drawRotatedHorizontalTexturedQuad(
+        consumer: com.mojang.blaze3d.vertex.VertexConsumer,
+        pose: PoseStack.Pose,
+        centerX: Float,
+        centerY: Float,
+        centerZ: Float,
+        halfSize: Float,
+        rotationDegrees: Float,
+        aColor: Int,
+        bColor: Int,
+        cColor: Int,
+        dColor: Int,
+    ) {
+        val rotationRadians = Math.toRadians(rotationDegrees.toDouble()).toFloat()
+        val rotationCos = cos(rotationRadians)
+        val rotationSin = sin(rotationRadians)
+
+        fun rotateX(localX: Float, localZ: Float): Float = centerX + ((localX * rotationCos) - (localZ * rotationSin))
+        fun rotateZ(localX: Float, localZ: Float): Float = centerZ + ((localX * rotationSin) + (localZ * rotationCos))
+
+        val min = -halfSize
+        val max = halfSize
+
+        drawTexturedQuad(
+            consumer = consumer,
+            pose = pose,
+            ax = rotateX(min, min),
+            ay = centerY,
+            az = rotateZ(min, min),
+            bx = rotateX(max, min),
+            by = centerY,
+            bz = rotateZ(max, min),
+            cx = rotateX(max, max),
+            cy = centerY,
+            cz = rotateZ(max, max),
+            dx = rotateX(min, max),
+            dy = centerY,
+            dz = rotateZ(min, max),
+            au = 0f,
+            av = 1f,
+            bu = 1f,
+            bv = 1f,
+            cu = 1f,
+            cv = 0f,
+            du = 0f,
+            dv = 0f,
+            aColor = aColor,
+            bColor = bColor,
+            cColor = cColor,
+            dColor = dColor,
+            normalY = 1f,
+        )
+    }
+
+    private fun resolveCircleVertexColors(effect: CircleEffect, currentTimeMillis: Long, alpha: Int): IntArray {
+        if (effect.colorMode == JumpCircleModule.CircleColorMode.SYNC) {
+            val syncedColor = withAlpha(VisualThemeSettings.accentStrong(), alpha)
+            return intArrayOf(syncedColor, syncedColor, syncedColor, syncedColor)
+        }
+
+        val palette = effect.palette
+        if (palette.isEmpty()) {
+            val fallbackColor = withAlpha(0xFFFFFFFF.toInt(), alpha)
+            return intArrayOf(fallbackColor, fallbackColor, fallbackColor, fallbackColor)
+        }
+
+        return when (effect.colorAnimation) {
+            JumpCircleModule.CircleColorAnimation.WAVE -> {
+                val color = animatedWaveCircleColor(palette, currentTimeMillis, alpha)
+                intArrayOf(color, color, color, color)
+            }
+            JumpCircleModule.CircleColorAnimation.VERTEXES -> intArrayOf(
+                animatedVertexCircleColor(palette, currentTimeMillis, 0, alpha),
+                animatedVertexCircleColor(palette, currentTimeMillis, 90, alpha),
+                animatedVertexCircleColor(palette, currentTimeMillis, 180, alpha),
+                animatedVertexCircleColor(palette, currentTimeMillis, 270, alpha),
+            )
+        }
+    }
+
+    private fun animatedWaveCircleColor(palette: IntArray, currentTimeMillis: Long, alpha: Int): Int {
+        if (palette.size == 1) return withAlpha(palette[0], alpha)
+        if (palette.size == 2) {
+            var angle = ((currentTimeMillis / 8L) % 360L).toInt()
+            angle = if (angle >= 180) 360 - angle else angle
+            return withAlpha(blendColor(palette[0], palette[1], angle / 180f), alpha)
+        }
+
+        val timeProgress = ((currentTimeMillis / 10f) % (palette.size * 360f)) / 360f
+        val index1 = floor(timeProgress).toInt().mod(palette.size)
+        val index2 = (index1 + 1) % palette.size
+        val lerp = timeProgress - floor(timeProgress)
+        return withAlpha(blendColor(palette[index1], palette[index2], lerp), alpha)
+    }
+
+    private fun animatedVertexCircleColor(palette: IntArray, currentTimeMillis: Long, angleOffset: Int, alpha: Int): Int {
+        if (palette.size == 1) return withAlpha(palette[0], alpha)
+
+        var angle = ((currentTimeMillis / 8L) + angleOffset) % 360L
+        if (palette.size == 2) {
+            val adjustedAngle = if (angle >= 180L) 360L - angle else angle
+            return withAlpha(blendColor(palette[0], palette[1], adjustedAngle / 180f), alpha)
+        }
+
+        val progress = angle / 360f
+        val colorIndex = progress * palette.size
+        val index1 = floor(colorIndex).toInt().mod(palette.size)
+        val index2 = (index1 + 1) % palette.size
+        val lerp = colorIndex - floor(colorIndex)
+        return withAlpha(blendColor(palette[index1], palette[index2], lerp), alpha)
+    }
+
+    private fun blendColor(startColor: Int, endColor: Int, progress: Float): Int {
+        val t = progress.coerceIn(0f, 1f)
+        val startRed = (startColor ushr 16) and 0xFF
+        val startGreen = (startColor ushr 8) and 0xFF
+        val startBlue = startColor and 0xFF
+        val endRed = (endColor ushr 16) and 0xFF
+        val endGreen = (endColor ushr 8) and 0xFF
+        val endBlue = endColor and 0xFF
+        val red = (startRed + ((endRed - startRed) * t)).roundToInt().coerceIn(0, 255)
+        val green = (startGreen + ((endGreen - startGreen) * t)).roundToInt().coerceIn(0, 255)
+        val blue = (startBlue + ((endBlue - startBlue) * t)).roundToInt().coerceIn(0, 255)
+        return (0xFF shl 24) or (red shl 16) or (green shl 8) or blue
     }
 
     private fun drawTexturedQuad(
@@ -1029,7 +1198,8 @@ object JumpCircleRenderer {
         return ((alpha.coerceIn(0, 255)) shl 24) or (color and 0x00FFFFFF)
     }
 
-    private fun buildShaderMaskQuad(
+    private fun buildShaderRevealQuad(
+        effect: BlockWaveEffect,
         minX: Double,
         maxX: Double,
         y: Double,
@@ -1038,20 +1208,36 @@ object JumpCircleRenderer {
         cameraX: Double,
         cameraY: Double,
         cameraZ: Double,
-    ): ShadertoyMaskedWorldRenderer.Quad {
-        return ShadertoyMaskedWorldRenderer.Quad(
+    ): ShadertoyWorldRevealRenderer.Quad {
+        val minWorldX = effect.centerX - effect.maxRadius
+        val minWorldZ = effect.centerZ - effect.maxRadius
+        val diameter = (effect.maxRadius * 2.0).coerceAtLeast(0.001f.toDouble())
+        val u0 = ((minX - minWorldX) / diameter).toFloat()
+        val u1 = ((maxX - minWorldX) / diameter).toFloat()
+        val v0 = (1.0 - ((minZ - minWorldZ) / diameter)).toFloat()
+        val v1 = (1.0 - ((maxZ - minWorldZ) / diameter)).toFloat()
+
+        return ShadertoyWorldRevealRenderer.Quad(
             ax = (minX - cameraX).toFloat(),
             ay = (y - cameraY).toFloat(),
             az = (minZ - cameraZ).toFloat(),
+            au = u0,
+            av = v0,
             bx = (maxX - cameraX).toFloat(),
             by = (y - cameraY).toFloat(),
             bz = (minZ - cameraZ).toFloat(),
+            bu = u1,
+            bv = v0,
             cx = (maxX - cameraX).toFloat(),
             cy = (y - cameraY).toFloat(),
             cz = (maxZ - cameraZ).toFloat(),
+            cu = u1,
+            cv = v1,
             dx = (minX - cameraX).toFloat(),
             dy = (y - cameraY).toFloat(),
             dz = (maxZ - cameraZ).toFloat(),
+            du = u0,
+            dv = v1,
         )
     }
 

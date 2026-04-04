@@ -1,12 +1,14 @@
 package com.visualproject.client.visuals.jumpcircle
 
 import com.mojang.blaze3d.platform.NativeImage
+import com.visualproject.client.texture.MaskedTextureConversions
 import com.visualproject.client.texture.NonDumpableDynamicTexture
 import net.minecraft.client.Minecraft
 import net.minecraft.resources.Identifier
 import java.awt.image.BufferedImage
 import java.io.ByteArrayInputStream
 import java.io.ByteArrayOutputStream
+import java.util.EnumMap
 import javax.imageio.ImageIO
 import kotlin.math.sqrt
 
@@ -15,8 +17,13 @@ object JumpCircleTextureRegistry {
 
     val whitePixelTextureId: Identifier = Identifier.fromNamespaceAndPath("visualclient", "textures/misc/white_pixel.png")
     private val ringTextureId = Identifier.fromNamespaceAndPath("visualclient", "jump_circle/ring_runtime")
+    private val defaultCircleTextureId = Identifier.fromNamespaceAndPath("visualclient", "textures/soup/circles/circle.png")
+    private val boldCircleTextureId = Identifier.fromNamespaceAndPath("visualclient", "textures/soup/circles/circle_bold.png")
+    private val portalCircleTextureId = Identifier.fromNamespaceAndPath("visualclient", "textures/soup/circles/portal.png")
+    private val soupCircleTextureId = Identifier.fromNamespaceAndPath("visualclient", "textures/soup/circles/soup.png")
 
     private var ringReady = false
+    private val maskedCircleTextures = EnumMap<JumpCircleModule.CircleTextureStyle, Identifier>(JumpCircleModule.CircleTextureStyle::class.java)
 
     fun resolveRingTexture(client: Minecraft): Identifier {
         if (!ringReady) {
@@ -27,6 +34,29 @@ object JumpCircleTextureRegistry {
             ringReady = true
         }
         return ringTextureId
+    }
+
+    fun resolveCircleTexture(client: Minecraft, style: JumpCircleModule.CircleTextureStyle): Identifier {
+        maskedCircleTextures[style]?.let { return it }
+        val source = when (style) {
+            JumpCircleModule.CircleTextureStyle.DEFAULT -> defaultCircleTextureId
+            JumpCircleModule.CircleTextureStyle.BOLD -> boldCircleTextureId
+            JumpCircleModule.CircleTextureStyle.PORTAL -> portalCircleTextureId
+            JumpCircleModule.CircleTextureStyle.SOUP -> soupCircleTextureId
+        }
+        val maskedTextureId = Identifier.fromNamespaceAndPath(
+            "visualclient",
+            "jump_circle/masked_${style.name.lowercase()}",
+        )
+        val sourceImage = client.resourceManager.open(source).use { input ->
+            ImageIO.read(input)
+        } ?: error("Failed to load jump circle texture: $source")
+        client.textureManager.register(
+            maskedTextureId,
+            NonDumpableDynamicTexture({ "visualclient-jump-circle-masked" }, nativeImageFromBuffered(buildMaskedCircleTexture(sourceImage)), false),
+        )
+        maskedCircleTextures[style] = maskedTextureId
+        return maskedTextureId
     }
 
     private fun buildRingTexture(): BufferedImage {
@@ -44,6 +74,10 @@ object JumpCircleTextureRegistry {
         }
 
         return image
+    }
+
+    private fun buildMaskedCircleTexture(sourceImage: BufferedImage): BufferedImage {
+        return MaskedTextureConversions.buildWhiteMask(sourceImage)
     }
 
     private fun ringAlpha(distance: Float): Int {

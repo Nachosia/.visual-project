@@ -10,10 +10,25 @@ object JumpCircleModule {
     const val modeKey = "$moduleId:mode"
     const val showFirstPersonKey = "$moduleId:show_first_person"
 
+    const val circleColorModeKey = "$moduleId:circle_color_mode"
+    const val circleColorCountKey = "$moduleId:circle_color_count"
+    const val circleColorAnimationKey = "$moduleId:circle_color_animation"
+    const val circleTextureStyleKey = "$moduleId:circle_texture_style"
+    const val circleAnimationTypeKey = "$moduleId:circle_animation_type"
+    const val circleAppearDurationKey = "$moduleId:circle_appear_duration"
+    const val circleExistDurationKey = "$moduleId:circle_exist_duration"
+    const val circleDisappearDurationKey = "$moduleId:circle_disappear_duration"
+    const val circleAppearInterpolationKey = "$moduleId:circle_appear_interpolation"
+    const val circleDisappearInterpolationKey = "$moduleId:circle_disappear_interpolation"
+    const val circleRotateSpeedKey = "$moduleId:circle_rotate_speed"
+    const val circleScaleKey = "$moduleId:circle_scale"
     const val circleRadiusKey = "$moduleId:circle_radius"
     const val circleSpeedKey = "$moduleId:circle_speed"
     const val circleClientColorKey = "$moduleId:circle_client_color"
     const val circleCustomColorKey = "$moduleId:circle_custom_color"
+    const val circleCustomColor2Key = "$moduleId:circle_custom_color_2"
+    const val circleCustomColor3Key = "$moduleId:circle_custom_color_3"
+    const val circleCustomColor4Key = "$moduleId:circle_custom_color_4"
 
     const val particleTypeKey = "$moduleId:particle_type"
     const val particlePhysicsKey = "$moduleId:particle_physics"
@@ -85,6 +100,66 @@ object JumpCircleModule {
         }
     }
 
+    enum class CircleColorMode(val id: String, val label: String) {
+        SYNC("sync", "Синхрон"),
+        CUSTOM("custom", "Кастом");
+
+        companion object {
+            fun fromId(raw: String): CircleColorMode {
+                return entries.firstOrNull { it.id.equals(raw.trim(), ignoreCase = true) } ?: SYNC
+            }
+        }
+    }
+
+    enum class CircleColorCount(val id: String, val label: String, val count: Int) {
+        SOLO("solo", "Один", 1),
+        DUO("duo", "Два", 2),
+        TRIPLE("triple", "Три", 3),
+        QUARTET("quartet", "Четыре", 4);
+
+        companion object {
+            fun fromId(raw: String): CircleColorCount {
+                return entries.firstOrNull { it.id.equals(raw.trim(), ignoreCase = true) } ?: SOLO
+            }
+        }
+    }
+
+    enum class CircleColorAnimation(val id: String, val label: String) {
+        WAVE("wave", "Волна"),
+        VERTEXES("vertexes", "Вершины");
+
+        companion object {
+            fun fromId(raw: String): CircleColorAnimation {
+                return entries.firstOrNull { it.id.equals(raw.trim(), ignoreCase = true) } ?: WAVE
+            }
+        }
+    }
+
+    enum class CircleTextureStyle(val id: String, val label: String) {
+        DEFAULT("default", "Default"),
+        BOLD("bold", "Bold"),
+        PORTAL("portal", "Portal"),
+        SOUP("soup", "Soup");
+
+        companion object {
+            fun fromId(raw: String): CircleTextureStyle {
+                return entries.firstOrNull { it.id.equals(raw.trim(), ignoreCase = true) } ?: DEFAULT
+            }
+        }
+    }
+
+    enum class CircleAnimationType(val id: String, val label: String) {
+        FADE("fade", "Fade"),
+        SCALE("scale", "Scale"),
+        BOTH("both", "Both");
+
+        companion object {
+            fun fromId(raw: String): CircleAnimationType {
+                return entries.firstOrNull { it.id.equals(raw.trim(), ignoreCase = true) } ?: BOTH
+            }
+        }
+    }
+
     enum class ShaderType(val id: String, val label: String) {
         NEBULA("nebula", "Небула"),
         STARS("stars", "Звёзды"),
@@ -114,11 +189,26 @@ object JumpCircleModule {
         ParticleTypeOption(WorldParticlesModule.ParticleType.MOON, "Луна"),
         ParticleTypeOption(WorldParticlesModule.ParticleType.BOLT, "Молния"),
         ParticleTypeOption(WorldParticlesModule.ParticleType.NEARBY, "Рядом"),
+        ParticleTypeOption(WorldParticlesModule.ParticleType.BLINK, "Blink"),
+        ParticleTypeOption(WorldParticlesModule.ParticleType.CORON, "Coron"),
+        ParticleTypeOption(WorldParticlesModule.ParticleType.FIREFLY, "Firefly"),
+        ParticleTypeOption(WorldParticlesModule.ParticleType.FLAME, "Flame"),
+        ParticleTypeOption(WorldParticlesModule.ParticleType.GEOMETRIC, "Geometric"),
+        ParticleTypeOption(WorldParticlesModule.ParticleType.VIRUS, "Virus"),
+        ParticleTypeOption(WorldParticlesModule.ParticleType.AMONGUS, "Among Us"),
+        ParticleTypeOption(WorldParticlesModule.ParticleType.BLOOM, "Bloom"),
+        ParticleTypeOption(WorldParticlesModule.ParticleType.GLYPH, "Glyph"),
+        ParticleTypeOption(WorldParticlesModule.ParticleType.GLYPH_ALT, "Glyph Alt"),
         ParticleTypeOption(WorldParticlesModule.ParticleType.CUSTOM, "Кастом"),
     )
 
     private const val defaultCircleRadius = 1.0f
     private const val defaultCircleSpeed = 2.0f
+    private const val defaultCircleAppearDuration = 1.0f
+    private const val defaultCircleExistDuration = 1.5f
+    private const val defaultCircleDisappearDuration = 1.0f
+    private const val defaultCircleRotateSpeed = 2.0f
+    private const val defaultCircleScale = 1.0f
     private const val defaultParticleCount = 4f
     private const val defaultParticleSize = 0.30f
     private const val defaultParticleLifetime = 20f
@@ -137,10 +227,30 @@ object JumpCircleModule {
         ModuleStateStore.ensureTextSetting(modeKey, Mode.CIRCLE_ONLY.id)
         ModuleStateStore.ensureSetting(showFirstPersonKey, defaultValue = true)
 
+        ModuleStateStore.ensureTextSetting(circleColorModeKey, CircleColorMode.SYNC.id)
+        ModuleStateStore.ensureTextSetting(circleColorCountKey, CircleColorCount.SOLO.id)
+        ModuleStateStore.ensureTextSetting(circleColorAnimationKey, CircleColorAnimation.WAVE.id)
+        ModuleStateStore.ensureTextSetting(circleTextureStyleKey, CircleTextureStyle.DEFAULT.id)
+        ModuleStateStore.ensureTextSetting(circleAnimationTypeKey, CircleAnimationType.BOTH.id)
+        ModuleStateStore.ensureNumberSetting(circleAppearDurationKey, defaultCircleAppearDuration)
+        ModuleStateStore.ensureNumberSetting(circleExistDurationKey, defaultCircleExistDuration)
+        ModuleStateStore.ensureNumberSetting(circleDisappearDurationKey, defaultCircleDisappearDuration)
+        ModuleStateStore.ensureTextSetting(circleAppearInterpolationKey, CircleInterpolationPreset.BOUNCE.id)
+        ModuleStateStore.ensureTextSetting(circleDisappearInterpolationKey, CircleInterpolationPreset.SMOOTH.id)
+        ModuleStateStore.ensureNumberSetting(circleRotateSpeedKey, defaultCircleRotateSpeed)
+        ModuleStateStore.ensureNumberSetting(circleScaleKey, defaultCircleScale)
         ModuleStateStore.ensureNumberSetting(circleRadiusKey, defaultCircleRadius)
         ModuleStateStore.ensureNumberSetting(circleSpeedKey, defaultCircleSpeed)
         ModuleStateStore.ensureSetting(circleClientColorKey, defaultValue = true)
         ModuleStateStore.ensureTextSetting(circleCustomColorKey, defaultWhiteHex)
+        ModuleStateStore.ensureTextSetting(circleCustomColor2Key, "#3574F0")
+        ModuleStateStore.ensureTextSetting(circleCustomColor3Key, "#9B59B6")
+        ModuleStateStore.ensureTextSetting(circleCustomColor4Key, "#F9C12B")
+        if (!ModuleStateStore.isSettingEnabled(circleClientColorKey) &&
+            ModuleStateStore.getTextSetting(circleColorModeKey, CircleColorMode.SYNC.id).equals(CircleColorMode.SYNC.id, ignoreCase = true)
+        ) {
+            ModuleStateStore.setTextSetting(circleColorModeKey, CircleColorMode.CUSTOM.id)
+        }
 
         ModuleStateStore.ensureTextSetting(particleTypeKey, WorldParticlesModule.ParticleType.HEART.id)
         ModuleStateStore.ensureTextSetting(particlePhysicsKey, ParticlePhysics.REALISTIC.id)
@@ -178,11 +288,73 @@ object JumpCircleModule {
 
     fun showFirstPerson(): Boolean = ModuleStateStore.isSettingEnabled(showFirstPersonKey)
 
+    fun circleColorMode(): CircleColorMode =
+        CircleColorMode.fromId(ModuleStateStore.getTextSetting(circleColorModeKey, CircleColorMode.SYNC.id))
+
+    fun circleColorCount(): CircleColorCount =
+        CircleColorCount.fromId(ModuleStateStore.getTextSetting(circleColorCountKey, CircleColorCount.SOLO.id))
+
+    fun circleColorAnimation(): CircleColorAnimation =
+        CircleColorAnimation.fromId(ModuleStateStore.getTextSetting(circleColorAnimationKey, CircleColorAnimation.WAVE.id))
+
+    fun circleTextureStyle(): CircleTextureStyle =
+        CircleTextureStyle.fromId(ModuleStateStore.getTextSetting(circleTextureStyleKey, CircleTextureStyle.DEFAULT.id))
+
+    fun circleAnimationType(): CircleAnimationType =
+        CircleAnimationType.fromId(ModuleStateStore.getTextSetting(circleAnimationTypeKey, CircleAnimationType.BOTH.id))
+
+    fun circleAppearDuration(): Float =
+        ModuleStateStore.getNumberSetting(circleAppearDurationKey, defaultCircleAppearDuration).coerceIn(0.10f, 3.0f)
+
+    fun circleExistDuration(): Float =
+        ModuleStateStore.getNumberSetting(circleExistDurationKey, defaultCircleExistDuration).coerceIn(0.10f, 3.0f)
+
+    fun circleDisappearDuration(): Float =
+        ModuleStateStore.getNumberSetting(circleDisappearDurationKey, defaultCircleDisappearDuration).coerceIn(0.10f, 3.0f)
+
+    fun circleAppearInterpolation(): CircleInterpolationPreset =
+        CircleInterpolationPreset.fromId(ModuleStateStore.getTextSetting(circleAppearInterpolationKey, CircleInterpolationPreset.BOUNCE.id))
+
+    fun circleDisappearInterpolation(): CircleInterpolationPreset =
+        CircleInterpolationPreset.fromId(ModuleStateStore.getTextSetting(circleDisappearInterpolationKey, CircleInterpolationPreset.SMOOTH.id))
+
+    fun circleRotateSpeed(): Float =
+        ModuleStateStore.getNumberSetting(circleRotateSpeedKey, defaultCircleRotateSpeed).coerceIn(0.50f, 5.0f)
+
+    fun circleScale(): Float =
+        ModuleStateStore.getNumberSetting(circleScaleKey, defaultCircleScale).coerceIn(0.50f, 3.0f)
+
+    fun circleAnimation(): ThreeStageAnimation {
+        return ThreeStageAnimation(
+            appearDuration = circleAppearDuration(),
+            existDuration = circleExistDuration(),
+            disappearDuration = circleDisappearDuration(),
+            appearInterpolation = circleAppearInterpolation(),
+            disappearInterpolation = circleDisappearInterpolation(),
+        )
+    }
+
     fun circleRadius(): Float = ModuleStateStore.getNumberSetting(circleRadiusKey, defaultCircleRadius).coerceIn(0.20f, 12.0f)
 
     fun circleSpeed(): Float = ModuleStateStore.getNumberSetting(circleSpeedKey, defaultCircleSpeed).coerceIn(0.10f, 20.0f)
 
-    fun circleColor(): Int = resolveColor(circleClientColorKey, circleCustomColorKey, 0xFFFFFFFF.toInt())
+    fun circleColor(): Int {
+        return if (circleColorMode() == CircleColorMode.SYNC) {
+            VisualThemeSettings.accentStrong()
+        } else {
+            circlePalette().firstOrNull() ?: parseColor(ModuleStateStore.getTextSetting(circleCustomColorKey, defaultWhiteHex), 0xFFFFFFFF.toInt())
+        }
+    }
+
+    fun circlePalette(): IntArray {
+        val palette = intArrayOf(
+            parseColor(ModuleStateStore.getTextSetting(circleCustomColorKey, defaultWhiteHex), 0xFFFFFFFF.toInt()),
+            parseColor(ModuleStateStore.getTextSetting(circleCustomColor2Key, "#3574F0"), 0xFF3574F0.toInt()),
+            parseColor(ModuleStateStore.getTextSetting(circleCustomColor3Key, "#9B59B6"), 0xFF9B59B6.toInt()),
+            parseColor(ModuleStateStore.getTextSetting(circleCustomColor4Key, "#F9C12B"), 0xFFF9C12B.toInt()),
+        )
+        return palette.copyOf(circleColorCount().count)
+    }
 
     fun particleType(): WorldParticlesModule.ParticleType {
         val raw = ModuleStateStore.getTextSetting(particleTypeKey, WorldParticlesModule.ParticleType.HEART.id)

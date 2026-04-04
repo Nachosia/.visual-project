@@ -24,6 +24,7 @@ import com.visualproject.client.ui.menu.fillRoundedRect
 import com.visualproject.client.ui.menu.fitStyledText
 import com.visualproject.client.visuals.chinahat.ChinaHatModule
 import com.visualproject.client.visuals.hitbox.HitboxCustomizerModule
+import com.visualproject.client.visuals.jumpcircle.CircleInterpolationPreset
 import com.visualproject.client.visuals.jumpcircle.JumpCircleModule
 import com.visualproject.client.visuals.jumpcircle.JumpCircleTextureRegistry
 import com.visualproject.client.visuals.nimb.NimbModule
@@ -1486,18 +1487,7 @@ class ExperimentalVisualsMenuScreen : Screen(Component.empty()) {
             addChoice(
                 WorldParticlesModule.particleTypeKey,
                 "Particle Type",
-                WorldParticlesModule.ParticleType.SPARK.id to WorldParticlesModule.ParticleType.SPARK.label,
-                WorldParticlesModule.ParticleType.SUN.id to WorldParticlesModule.ParticleType.SUN.label,
-                WorldParticlesModule.ParticleType.SNOWFLAKE.id to WorldParticlesModule.ParticleType.SNOWFLAKE.label,
-                WorldParticlesModule.ParticleType.PAYMENTS.id to WorldParticlesModule.ParticleType.PAYMENTS.label,
-                WorldParticlesModule.ParticleType.DOLLAR.id to WorldParticlesModule.ParticleType.DOLLAR.label,
-                WorldParticlesModule.ParticleType.HEART.id to WorldParticlesModule.ParticleType.HEART.label,
-                WorldParticlesModule.ParticleType.WATER_DROP.id to WorldParticlesModule.ParticleType.WATER_DROP.label,
-                WorldParticlesModule.ParticleType.STAR.id to WorldParticlesModule.ParticleType.STAR.label,
-                WorldParticlesModule.ParticleType.MOON.id to WorldParticlesModule.ParticleType.MOON.label,
-                WorldParticlesModule.ParticleType.BOLT.id to WorldParticlesModule.ParticleType.BOLT.label,
-                WorldParticlesModule.ParticleType.NEARBY.id to WorldParticlesModule.ParticleType.NEARBY.label,
-                WorldParticlesModule.ParticleType.CUSTOM.id to WorldParticlesModule.ParticleType.CUSTOM.label,
+                *WorldParticlesModule.ParticleType.entries.map { it.id to it.label }.toTypedArray(),
             )
             addChoice(
                 WorldParticlesModule.physicsModeKey,
@@ -1564,12 +1554,62 @@ class ExperimentalVisualsMenuScreen : Screen(Component.empty()) {
             when (JumpCircleModule.mode()) {
                 JumpCircleModule.Mode.CIRCLE_ONLY -> {
                     addSection("Круг")
-                    addSlider(JumpCircleModule.circleRadiusKey, "Радиус", 0.20f, 12.0f)
-                    addSlider(JumpCircleModule.circleSpeedKey, "Скорость", 0.10f, 20.0f)
+                    addChoice(
+                        JumpCircleModule.circleTextureStyleKey,
+                        "Текстура",
+                        *JumpCircleModule.CircleTextureStyle.entries.map { it.id to it.label }.toTypedArray(),
+                    )
+                    addChoice(
+                        JumpCircleModule.circleAnimationTypeKey,
+                        "Анимация",
+                        *JumpCircleModule.CircleAnimationType.entries.map { it.id to it.label }.toTypedArray(),
+                    )
+                    addSlider(JumpCircleModule.circleScaleKey, "Размер", 0.50f, 3.0f)
+                    addSlider(JumpCircleModule.circleRotateSpeedKey, "Скорость вращения", 0.50f, 5.0f)
+
+                    addSection("Тайминги")
+                    addSlider(JumpCircleModule.circleAppearDurationKey, "Появление", 0.10f, 3.0f)
+                    addSlider(JumpCircleModule.circleExistDurationKey, "Удержание", 0.10f, 3.0f)
+                    addSlider(JumpCircleModule.circleDisappearDurationKey, "Исчезновение", 0.10f, 3.0f)
+                    addChoice(
+                        JumpCircleModule.circleAppearInterpolationKey,
+                        "Интерполяция появления",
+                        *CircleInterpolationPreset.entries.map { it.id to it.label }.toTypedArray(),
+                    )
+                    addChoice(
+                        JumpCircleModule.circleDisappearInterpolationKey,
+                        "Интерполяция исчезновения",
+                        *CircleInterpolationPreset.entries.map { it.id to it.label }.toTypedArray(),
+                    )
 
                     addSection("Цвет")
-                    addToggle(JumpCircleModule.circleClientColorKey, "Цвет клиента")
-                    addInput(JumpCircleModule.circleCustomColorKey, "Кастомный цвет", "#RRGGBB")
+                    addChoice(
+                        JumpCircleModule.circleColorModeKey,
+                        "Режим цвета",
+                        *JumpCircleModule.CircleColorMode.entries.map { it.id to it.label }.toTypedArray(),
+                    )
+                    if (JumpCircleModule.circleColorMode() == JumpCircleModule.CircleColorMode.CUSTOM) {
+                        addChoice(
+                            JumpCircleModule.circleColorCountKey,
+                            "Количество цветов",
+                            *JumpCircleModule.CircleColorCount.entries.map { it.id to it.label }.toTypedArray(),
+                        )
+                        addChoice(
+                            JumpCircleModule.circleColorAnimationKey,
+                            "Анимация цвета",
+                            *JumpCircleModule.CircleColorAnimation.entries.map { it.id to it.label }.toTypedArray(),
+                        )
+                        addInput(JumpCircleModule.circleCustomColorKey, "Кастомный цвет 1", "#RRGGBB")
+                        if (JumpCircleModule.circleColorCount().count >= 2) {
+                            addInput(JumpCircleModule.circleCustomColor2Key, "Кастомный цвет 2", "#RRGGBB")
+                        }
+                        if (JumpCircleModule.circleColorCount().count >= 3) {
+                            addInput(JumpCircleModule.circleCustomColor3Key, "Кастомный цвет 3", "#RRGGBB")
+                        }
+                        if (JumpCircleModule.circleColorCount().count >= 4) {
+                            addInput(JumpCircleModule.circleCustomColor4Key, "Кастомный цвет 4", "#RRGGBB")
+                        }
+                    }
                 }
 
                 JumpCircleModule.Mode.PARTICLES_ONLY -> {
@@ -1605,12 +1645,62 @@ class ExperimentalVisualsMenuScreen : Screen(Component.empty()) {
 
                 JumpCircleModule.Mode.CIRCLE_AND_PARTICLES -> {
                     addSection("Круг")
-                    addSlider(JumpCircleModule.circleRadiusKey, "Радиус", 0.20f, 12.0f)
-                    addSlider(JumpCircleModule.circleSpeedKey, "Скорость", 0.10f, 20.0f)
+                    addChoice(
+                        JumpCircleModule.circleTextureStyleKey,
+                        "Текстура",
+                        *JumpCircleModule.CircleTextureStyle.entries.map { it.id to it.label }.toTypedArray(),
+                    )
+                    addChoice(
+                        JumpCircleModule.circleAnimationTypeKey,
+                        "Анимация",
+                        *JumpCircleModule.CircleAnimationType.entries.map { it.id to it.label }.toTypedArray(),
+                    )
+                    addSlider(JumpCircleModule.circleScaleKey, "Размер", 0.50f, 3.0f)
+                    addSlider(JumpCircleModule.circleRotateSpeedKey, "Скорость вращения", 0.50f, 5.0f)
+
+                    addSection("Тайминги круга")
+                    addSlider(JumpCircleModule.circleAppearDurationKey, "Появление", 0.10f, 3.0f)
+                    addSlider(JumpCircleModule.circleExistDurationKey, "Удержание", 0.10f, 3.0f)
+                    addSlider(JumpCircleModule.circleDisappearDurationKey, "Исчезновение", 0.10f, 3.0f)
+                    addChoice(
+                        JumpCircleModule.circleAppearInterpolationKey,
+                        "Интерполяция появления",
+                        *CircleInterpolationPreset.entries.map { it.id to it.label }.toTypedArray(),
+                    )
+                    addChoice(
+                        JumpCircleModule.circleDisappearInterpolationKey,
+                        "Интерполяция исчезновения",
+                        *CircleInterpolationPreset.entries.map { it.id to it.label }.toTypedArray(),
+                    )
 
                     addSection("Цвет круга")
-                    addToggle(JumpCircleModule.circleClientColorKey, "Цвет клиента")
-                    addInput(JumpCircleModule.circleCustomColorKey, "Кастомный цвет", "#RRGGBB")
+                    addChoice(
+                        JumpCircleModule.circleColorModeKey,
+                        "Режим цвета",
+                        *JumpCircleModule.CircleColorMode.entries.map { it.id to it.label }.toTypedArray(),
+                    )
+                    if (JumpCircleModule.circleColorMode() == JumpCircleModule.CircleColorMode.CUSTOM) {
+                        addChoice(
+                            JumpCircleModule.circleColorCountKey,
+                            "Количество цветов",
+                            *JumpCircleModule.CircleColorCount.entries.map { it.id to it.label }.toTypedArray(),
+                        )
+                        addChoice(
+                            JumpCircleModule.circleColorAnimationKey,
+                            "Анимация цвета",
+                            *JumpCircleModule.CircleColorAnimation.entries.map { it.id to it.label }.toTypedArray(),
+                        )
+                        addInput(JumpCircleModule.circleCustomColorKey, "Кастомный цвет 1", "#RRGGBB")
+                        if (JumpCircleModule.circleColorCount().count >= 2) {
+                            addInput(JumpCircleModule.circleCustomColor2Key, "Кастомный цвет 2", "#RRGGBB")
+                        }
+                        if (JumpCircleModule.circleColorCount().count >= 3) {
+                            addInput(JumpCircleModule.circleCustomColor3Key, "Кастомный цвет 3", "#RRGGBB")
+                        }
+                        if (JumpCircleModule.circleColorCount().count >= 4) {
+                            addInput(JumpCircleModule.circleCustomColor4Key, "Кастомный цвет 4", "#RRGGBB")
+                        }
+                    }
 
                     addSection("Частицы")
                     addChoice(
@@ -1948,6 +2038,9 @@ class ExperimentalVisualsMenuScreen : Screen(Component.empty()) {
             WorldCustomizerModule.customSkyColorKey -> ModuleStateStore.getTextSetting(key, "#4B5DFF")
             WorldParticlesModule.customColorKey -> ModuleStateStore.getTextSetting(key, "#B31284")
             JumpCircleModule.circleCustomColorKey -> ModuleStateStore.getTextSetting(key, "#FFFFFF")
+            JumpCircleModule.circleCustomColor2Key -> ModuleStateStore.getTextSetting(key, "#3574F0")
+            JumpCircleModule.circleCustomColor3Key -> ModuleStateStore.getTextSetting(key, "#9B59B6")
+            JumpCircleModule.circleCustomColor4Key -> ModuleStateStore.getTextSetting(key, "#F9C12B")
             JumpCircleModule.particleCustomColorKey -> ModuleStateStore.getTextSetting(key, "#FFFFFF")
             JumpCircleModule.waveCustomColorKey -> ModuleStateStore.getTextSetting(key, "#FFFFFF")
             JumpCircleModule.waveFillCustomColorKey -> ModuleStateStore.getTextSetting(key, "#FFFFFF")
@@ -1972,6 +2065,9 @@ class ExperimentalVisualsMenuScreen : Screen(Component.empty()) {
             key == WorldCustomizerModule.customSkyColorKey ||
             key == WorldParticlesModule.customColorKey ||
             key == JumpCircleModule.circleCustomColorKey ||
+            key == JumpCircleModule.circleCustomColor2Key ||
+            key == JumpCircleModule.circleCustomColor3Key ||
+            key == JumpCircleModule.circleCustomColor4Key ||
             key == JumpCircleModule.particleCustomColorKey ||
             key == JumpCircleModule.waveCustomColorKey ||
             key == JumpCircleModule.waveFillCustomColorKey ||
@@ -2014,6 +2110,9 @@ class ExperimentalVisualsMenuScreen : Screen(Component.empty()) {
                 row.key == WorldParticlesModule.customColorKey ||
                 row.key == JumpCircleModule.particleCustomColorKey ||
                 row.key == JumpCircleModule.circleCustomColorKey ||
+                row.key == JumpCircleModule.circleCustomColor2Key ||
+                row.key == JumpCircleModule.circleCustomColor3Key ||
+                row.key == JumpCircleModule.circleCustomColor4Key ||
                 row.key == JumpCircleModule.waveCustomColorKey ||
                 row.key == JumpCircleModule.waveFillCustomColorKey
             ) {
@@ -2030,7 +2129,12 @@ class ExperimentalVisualsMenuScreen : Screen(Component.empty()) {
             drawWorldParticlePreview(context, IntRect(swatch.x + 2, swatch.y + 2, swatch.width - 4, swatch.height - 4))
         } else if (row.key == JumpCircleModule.particleCustomColorKey) {
             drawJumpCircleParticlePreview(context, IntRect(swatch.x + 2, swatch.y + 2, swatch.width - 4, swatch.height - 4))
-        } else if (row.key == JumpCircleModule.circleCustomColorKey) {
+        } else if (
+            row.key == JumpCircleModule.circleCustomColorKey ||
+            row.key == JumpCircleModule.circleCustomColor2Key ||
+            row.key == JumpCircleModule.circleCustomColor3Key ||
+            row.key == JumpCircleModule.circleCustomColor4Key
+        ) {
             drawJumpCircleRingPreview(context, IntRect(swatch.x + 2, swatch.y + 2, swatch.width - 4, swatch.height - 4))
         } else if (row.key == JumpCircleModule.waveCustomColorKey) {
             drawJumpCircleWaveOutlinePreview(context, IntRect(swatch.x + 2, swatch.y + 2, swatch.width - 4, swatch.height - 4))
@@ -2098,8 +2202,14 @@ class ExperimentalVisualsMenuScreen : Screen(Component.empty()) {
         if (key == WorldParticlesModule.customColorKey) {
             ModuleStateStore.setSettingEnabled(WorldParticlesModule.clientColorKey, false)
         }
-        if (key == JumpCircleModule.circleCustomColorKey) {
+        if (
+            key == JumpCircleModule.circleCustomColorKey ||
+            key == JumpCircleModule.circleCustomColor2Key ||
+            key == JumpCircleModule.circleCustomColor3Key ||
+            key == JumpCircleModule.circleCustomColor4Key
+        ) {
             ModuleStateStore.setSettingEnabled(JumpCircleModule.circleClientColorKey, false)
+            ModuleStateStore.setTextSetting(JumpCircleModule.circleColorModeKey, JumpCircleModule.CircleColorMode.CUSTOM.id)
         }
         if (key == JumpCircleModule.particleCustomColorKey) {
             ModuleStateStore.setSettingEnabled(JumpCircleModule.particleClientColorKey, false)
@@ -2130,6 +2240,9 @@ class ExperimentalVisualsMenuScreen : Screen(Component.empty()) {
             WorldCustomizerModule.customSkyColorKey -> parseColorSetting(ModuleStateStore.getTextSetting(key, "#4B5DFF"), 0xFF4B5DFF.toInt())
             WorldParticlesModule.customColorKey -> parseColorSetting(ModuleStateStore.getTextSetting(key, "#B31284"), 0xFFB31284.toInt())
             JumpCircleModule.circleCustomColorKey -> parseColorSetting(ModuleStateStore.getTextSetting(key, "#FFFFFF"), 0xFFFFFFFF.toInt())
+            JumpCircleModule.circleCustomColor2Key -> parseColorSetting(ModuleStateStore.getTextSetting(key, "#3574F0"), 0xFF3574F0.toInt())
+            JumpCircleModule.circleCustomColor3Key -> parseColorSetting(ModuleStateStore.getTextSetting(key, "#9B59B6"), 0xFF9B59B6.toInt())
+            JumpCircleModule.circleCustomColor4Key -> parseColorSetting(ModuleStateStore.getTextSetting(key, "#F9C12B"), 0xFFF9C12B.toInt())
             JumpCircleModule.particleCustomColorKey -> parseColorSetting(ModuleStateStore.getTextSetting(key, "#FFFFFF"), 0xFFFFFFFF.toInt())
             JumpCircleModule.waveCustomColorKey -> parseColorSetting(ModuleStateStore.getTextSetting(key, "#FFFFFF"), 0xFFFFFFFF.toInt())
             JumpCircleModule.waveFillCustomColorKey -> parseColorSetting(ModuleStateStore.getTextSetting(key, "#FFFFFF"), 0xFFFFFFFF.toInt())
@@ -2156,7 +2269,10 @@ class ExperimentalVisualsMenuScreen : Screen(Component.empty()) {
             "gif_hud:chroma_key_color" -> "Chroma Key Color"
             WorldCustomizerModule.customSkyColorKey -> "Custom Sky Color"
             WorldParticlesModule.customColorKey -> "Custom Particle Color"
-            JumpCircleModule.circleCustomColorKey -> "Jump Circle Color"
+            JumpCircleModule.circleCustomColorKey -> "Jump Circle Color 1"
+            JumpCircleModule.circleCustomColor2Key -> "Jump Circle Color 2"
+            JumpCircleModule.circleCustomColor3Key -> "Jump Circle Color 3"
+            JumpCircleModule.circleCustomColor4Key -> "Jump Circle Color 4"
             JumpCircleModule.particleCustomColorKey -> "Jump Circle Particle Color"
             JumpCircleModule.waveCustomColorKey -> "Jump Circle Wave Outline Color"
             JumpCircleModule.waveFillCustomColorKey -> "Jump Circle Wave Fill Color"
@@ -2206,6 +2322,9 @@ class ExperimentalVisualsMenuScreen : Screen(Component.empty()) {
         val currentColor = currentThemeColorForKey(currentKey)
         val particlePreview = currentKey == WorldParticlesModule.customColorKey || currentKey == JumpCircleModule.particleCustomColorKey
         val jumpCirclePreview = currentKey == JumpCircleModule.circleCustomColorKey ||
+            currentKey == JumpCircleModule.circleCustomColor2Key ||
+            currentKey == JumpCircleModule.circleCustomColor3Key ||
+            currentKey == JumpCircleModule.circleCustomColor4Key ||
             currentKey == JumpCircleModule.waveCustomColorKey ||
             currentKey == JumpCircleModule.waveFillCustomColorKey
         SdfPanelRenderer.draw(
@@ -2289,6 +2408,9 @@ class ExperimentalVisualsMenuScreen : Screen(Component.empty()) {
             )
             when (currentKey) {
                 JumpCircleModule.circleCustomColorKey -> drawJumpCircleRingPreview(context, previewBounds)
+                JumpCircleModule.circleCustomColor2Key -> drawJumpCircleRingPreview(context, previewBounds)
+                JumpCircleModule.circleCustomColor3Key -> drawJumpCircleRingPreview(context, previewBounds)
+                JumpCircleModule.circleCustomColor4Key -> drawJumpCircleRingPreview(context, previewBounds)
                 JumpCircleModule.waveCustomColorKey -> drawJumpCircleWaveOutlinePreview(context, previewBounds)
                 JumpCircleModule.waveFillCustomColorKey -> drawJumpCircleWaveFillPreview(context, previewBounds)
             }
@@ -2398,9 +2520,18 @@ class ExperimentalVisualsMenuScreen : Screen(Component.empty()) {
 
     private fun drawJumpCircleRingPreview(context: GuiGraphics, bounds: IntRect) {
         val client = Minecraft.getInstance()
+        val previewColor = activeThemeColorKey?.let { key ->
+            when (key) {
+                JumpCircleModule.circleCustomColorKey,
+                JumpCircleModule.circleCustomColor2Key,
+                JumpCircleModule.circleCustomColor3Key,
+                JumpCircleModule.circleCustomColor4Key -> currentThemeColorForKey(key)
+                else -> null
+            }
+        } ?: JumpCircleModule.circleColor()
         context.blit(
             RenderPipelines.GUI_TEXTURED,
-            JumpCircleTextureRegistry.resolveRingTexture(client),
+            JumpCircleTextureRegistry.resolveCircleTexture(client, JumpCircleModule.circleTextureStyle()),
             bounds.x,
             bounds.y,
             0f,
@@ -2411,7 +2542,7 @@ class ExperimentalVisualsMenuScreen : Screen(Component.empty()) {
             bounds.height,
             bounds.width,
             bounds.height,
-            0xFF000000.toInt() or (JumpCircleModule.circleColor() and 0x00FFFFFF),
+            0xFF000000.toInt() or (previewColor and 0x00FFFFFF),
         )
     }
 
@@ -2570,6 +2701,8 @@ class ExperimentalVisualsMenuScreen : Screen(Component.empty()) {
             key == VisualThemeSettings.themeFontKey ||
             key == WatermarkHudModule.typeKey ||
             key == JumpCircleModule.modeKey ||
+            key == JumpCircleModule.circleColorModeKey ||
+            key == JumpCircleModule.circleColorCountKey ||
             key == JumpCircleModule.particleTypeKey ||
             key == JumpCircleModule.waveFillTypeKey ||
             key == ChinaHatModule.shapeKey ||
@@ -2668,6 +2801,11 @@ class ExperimentalVisualsMenuScreen : Screen(Component.empty()) {
             JumpCircleModule.particleCountKey,
             JumpCircleModule.particleLifetimeKey,
             JumpCircleModule.waveRadiusKey -> kotlin.math.round(rawValue)
+            JumpCircleModule.circleAppearDurationKey,
+            JumpCircleModule.circleExistDurationKey,
+            JumpCircleModule.circleDisappearDurationKey,
+            JumpCircleModule.circleRotateSpeedKey,
+            JumpCircleModule.circleScaleKey,
             JumpCircleModule.circleRadiusKey,
             JumpCircleModule.circleSpeedKey,
             JumpCircleModule.waveSpeedKey,
@@ -2715,6 +2853,11 @@ class ExperimentalVisualsMenuScreen : Screen(Component.empty()) {
             JumpCircleModule.particleCountKey,
             JumpCircleModule.particleLifetimeKey,
             JumpCircleModule.waveRadiusKey -> value.roundToInt().toString()
+            JumpCircleModule.circleAppearDurationKey,
+            JumpCircleModule.circleExistDurationKey,
+            JumpCircleModule.circleDisappearDurationKey,
+            JumpCircleModule.circleRotateSpeedKey,
+            JumpCircleModule.circleScaleKey,
             JumpCircleModule.circleRadiusKey,
             JumpCircleModule.circleSpeedKey,
             JumpCircleModule.waveSpeedKey,
